@@ -1,0 +1,32 @@
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive \
+    GCC_VERSION=16.2.0 \
+    TERM=xterm-256color \
+    EDITOR=vim \
+    PATH=/home/developer/.local/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential binutils bison flex make cmake ninja-build \
+    gdb git vim less file wget curl ca-certificates gnupg \
+    xz-utils bzip2 gzip tar unzip patch diffutils pkg-config \
+    python3 python3-pip perl texinfo gawk \
+    libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
+    zlib1g-dev libzstd-dev sudo \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/node-setup.sh \
+    && bash /tmp/node-setup.sh \
+    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && rm -f /tmp/node-setup.sh \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @openai/codex @opencode/cli \
+    && npm cache clean --force
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN groupadd --gid ${USER_GID} developer \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash developer \
+    && mkdir -p /usr/src/gcc-build /usr/src/gcc-omp-transaction \
+    && chown -R developer:developer /usr/src/gcc-build /usr/src/gcc-omp-transaction
+USER developer
+RUN curl -fsSL https://claude.ai/install.sh | bash
+WORKDIR /usr/src/gcc-omp-transaction
+CMD ["/bin/bash"]
+

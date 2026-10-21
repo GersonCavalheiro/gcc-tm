@@ -1,0 +1,33 @@
+# ============================================================
+# GCC-TM — Regras de versionamento
+# ============================================================
+
+# Artefatos de compilação
+*.o
+*.a
+*.so
+*.so.*
+*.lo
+*.la
+*.pyc
+
+# Arquivos temporários e logs
+*~
+*.swp
+*.swo
+*.log
+
+# Arquivos de editores e IDEs
+.vscode/
+.idea/
+
+# Executáveis temporários
+a.out
+
+# Diretórios de compilação criados dentro dos fontes
+gcc-src-tm/**/build/
+
+# Diretório principal de compilação:
+# ignorar todo o conteúdo, exceto .gitkeep
+/gcc-build/*
+!/gcc-build/.gitkeep
