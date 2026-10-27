@@ -816,7 +816,6 @@
 
 	* decl.c (mark_inline_variable): New.
 
->>>>>>> .r241142
 2016-10-13  Thomas Preud'homme  <thomas.preudhomme@arm.com>
 
 	* decl2.c: Include memmodel.h.

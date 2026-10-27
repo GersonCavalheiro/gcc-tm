@@ -10,7 +10,6 @@ para os contratos propostos de leitura/escrita. A hash mantém registros e
 referências; as primitivas de acesso controlam reservas e dados privados; este
 agente rege a propagação da falha, cleanups, descarte e reinício.
 Assinaturas stm_* abaixo são pseudocódigo, sem ABI aprovada; newtm_read/write
-<<<<<<< HEAD
 e as seis operações newtm_* de ciclo de vida têm esqueletos internos declarados.
 Seus contratos funcionais ainda não são executados. O inventário
 [PRIMITIVES](OPENMP_TRANSACTION_PRIMITIVES.md) registra as assinaturas e a divisão
@@ -18,11 +17,6 @@ entre primitivas, helpers e fases. Propagação segura entre funções permanece
 A etapa dos esqueletos escolheu descarte explícito: end que falha preserva a
 tentativa e o controle externo chama discard após cleanups; isso substitui o
 modelo anterior de descarte implícito por end-false.
-=======
-já têm esqueletos internos declarados, mas seus contratos funcionais permanecem
-propostos. A definição de
-propagação segura de conflito entre funções permanece pendente.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ## Papel
 
@@ -34,11 +28,7 @@ Atue como agente de engenharia de compiladores e runtime, responsável por imple
 2. A primeira diretiva `transaction` encontrada dinamicamente por uma thread inicia a transação efetiva (*outermost*). Diretivas subsequentes, inclusive em outras funções, participam da mesma transação: **flat nesting**.
 3. A lista de variáveis de cada diretiva adiciona endereços/objetos ao conjunto transacional efetivo. Uma transação interna não cria commit independente.
 4. O encerramento normal de uma diretiva interna apenas conclui sua participação. Somente o encerramento da diretiva externa tenta validar e publicar as escritas.
-<<<<<<< HEAD
 5. Se o commit externo falhar, o controle externo conduz cleanups e descarte explícito. Somente conflito permite reiniciar **todo o bloco externo**, incluindo chamadas a funções internas, após descarte e espera bem-sucedidos. INVALID e exceções não autorizam retry; nunca reiniciar isoladamente o bloco interno.
-=======
-5. Se o commit externo falhar, o runtime descarta as escritas especulativas, restaura seu estado transacional e o código gerado reinicia **todo o bloco externo**, incluindo as chamadas a funções internas. Não se reinicia isoladamente o bloco interno.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 6. Não há abort explícito nem transferência assíncrona de controle. Impedir o acesso conflitante antes de executá-lo e não continuar normalmente com valores inválidos. A falha pode ser propagada até o epílogo externo somente por um caminho seguro que impeça acessos e efeitos posteriores indevidos. O mecanismo de propagação entre funções ainda precisa ser definido; restringir casos sem mecanismo seguro. **Não utilizar `setjmp`/`longjmp` para o caminho normal de retry**.
 7. O estado transacional e a profundidade são locais à thread **sob a restrição de ausência de pontos de escalonamento de tarefas durante toda a transação**. Estruturas de coordenação (como uma tabela hash global de metadados) podem ser compartilhadas, com sincronização adequada.
 8. Uma região `transaction` executa integralmente em uma única tarefa OpenMP, sem pontos de escalonamento de tarefas durante sua execução dinâmica. Transações aninhadas na mesma tarefa participam da transação externa. Não exigir `tied` como condição adicional: a ausência de suspensão/migração durante a transação é a propriedade decisiva.
@@ -55,7 +45,6 @@ Entrada:
 }
 ```
 
-<<<<<<< HEAD
 Saída conceitual (não é C executável nem ABI; stm_* são nomes ilustrativos):
 
 ```text
@@ -69,22 +58,6 @@ se houver falha de acesso/encerramento:
     stm_rollback: descartar uma vez; exigir limpeza bem-sucedida
     se a causa era CONFLICT: esperar sem reservas e repetir bloco externo inteiro
     se permanente ou exceção do usuário: tratamento próprio, sem retry
-=======
-Saída conceitual (pseudocódigo, não uma ABI definitiva):
-
-```c
-retry_transaction:
-    bool outermost = stm_begin(&a, &b);
-
-    /* corpo instrumentado: verificar cada retorno de leitura/escrita;
-       falhas transferem para o protocolo de descarte descrito abaixo,
-       sem continuar normalmente nem confirmar no epilogo de sucesso */
-
-    if (!stm_end(outermost)) {
-        /* no modelo proposto, stm_end ja descartou a tentativa */
-        goto retry_transaction;
-    }
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 ```
 
 **Invariante fundamental:** nenhuma falha pode reiniciar apenas o bloco interno.
@@ -100,7 +73,6 @@ conflito repetível. Rejeitar casos sem mecanismo seguro de propagação.
 - `stm_read` / `stm_write`: nomes ilustrativos das operações detalhadas como
   `newtm_read` / `newtm_write` no agente de acesso; verificar o estado antes de
   consumir o resultado ou continuar com efeitos do programa.
-<<<<<<< HEAD
 - `stm_end`: saída normal conceitual; interna reduz profundidade, externa saudável
   publica e libera recursos. Falha preserva tentativa para descarte explícito.
   O esqueleto interno é newtm_end(slot), com enum de resultado, sem bool de entrada.
@@ -255,20 +227,6 @@ teste atual dos stubs como prova dessas garantias funcionais.
 Os nomes stm_* são conceituais. As assinaturas internas newtm_* constam no
 inventário e no cabeçalho newtm-transaction.h; a ponte GOMP void continua com
 contrato de rastreamento separado. Os efeitos funcionais abaixo permanecem futuros.
-=======
-- `stm_end(outermost) -> bool`: para diretivas internas, apenas reduz a profundidade e retorna verdadeiro; para a externa, valida e tenta publicar atomicamente, retornando verdadeiro em sucesso e falso em conflito após descartar a tentativa.
-- `stm_rollback`: descarte exatamente uma vez por tentativa fracassada, com
-  propriedade definida na seção de pré/pós-condições abaixo; evitar rollback duplicado.
-
-Não usar o argumento `outermost` como autoridade isolada: o runtime deve conferir a coerência entre profundidade, estado e thread proprietária. Ao concluir ou descartar a transação externa, profundidade e estado ativo devem ser restaurados consistentemente.
-
-## Pré e pós-condições das operações de ciclo de vida
-
-Os nomes stm_* são conceituais. O modelo abaixo completa o contrato funcional
-proposto, sem definir protótipos/exportações. A ponte void atual tem contrato de
-rastreamento separado no agente da hash. Não implementar esses efeitos como
-consequência da criação dos esqueletos de read/write.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ### stm_begin(lista_de_enderecos) -> outermost
 
@@ -278,19 +236,13 @@ condenada. Lista válida segundo o contrato de registro, objetos vivos e tipos
 suportados. Profundidade e contadores podem crescer sem overflow.
 
 Pós-condições em sucesso: se externo, contexto/tentativa novos, profundidade um,
-<<<<<<< HEAD
 indicador outermost=true em OK; se interno, mesma identidade e dados privados,
 profundidade +1 e outermost=false em OK. No modelo conceitual com lista, objetos
 registrados sem leitura antecipada nem reserva. Duplicatas
-=======
-retorno true; se interno, mesma identidade e dados privados, profundidade +1,
-retorno false. Objetos registrados sem leitura antecipada nem reserva. Duplicatas
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 são idempotentes e listas internas ampliam o conjunto a partir dessa entrada.
 Nenhuma publicação, reinicialização da tentativa externa ou herança por outra
 thread é permitida.
 
-<<<<<<< HEAD
 Falha: não publicar nível parcial; preservar slot/profundidade e escrever
 outermost=false quando a saída for válida. O enum lifecycle separa sucesso,
 conflito e erro permanente; o bool não codifica erro. Alocação é fatal.
@@ -302,40 +254,19 @@ newtm_register após entrada OK. Contexto condenado não entra em nível normal.
 Pré-condições: entrada correspondente ainda ativa, proprietário correto,
 profundidade positiva e término normal de região; slot e proprietário válidos.
 Não chamar esse caminho depois de abort que já desfez o nível. Falhas
-=======
-Falha: não publicar entrada/nivel parcialmente inicializado. O bool ilustrativo
-não codifica erro — false significa aninhamento, não falha. Definir canal
-separado ou erro fatal para falha permanente; alocação segue o contrato fatal da
-libgomp. Contexto condenado segue descarte, não begin interno normal.
-
-### stm_end(outermost) -> bool
-
-Pré-condições: entrada correspondente ainda ativa, proprietário correto,
-profundidade positiva e término normal de região; argumento coerente com estado
-runtime. Não chamar esse caminho depois de abort que já desfez o nível. Falhas
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 de acesso já sinalizadas desviam para descarte; não executar o restante do corpo
 para alcançar end. Cleanups que precisem da visão ativa devem ter protocolo e
 ordem definidos antes de sua invalidação.
 
-<<<<<<< HEAD
 Pós-condições internas: retorno NEWTM_LIFECYCLE_OK, profundidade -1, identidade, reservas,
 registros e valores privados preservados; nenhum commit independente. Tentativa
 condenada não pode retornar OK como se estivesse saudável.
 
 Pós-condições externas em sucesso: retorno NEWTM_LIFECYCLE_OK somente depois de publicar todas
-=======
-Pós-condições internas: retorno true, profundidade -1, identidade, reservas,
-registros e valores privados preservados; nenhum commit independente. Tentativa
-condenada não pode retornar true como se estivesse saudável.
-
-Pós-condições externas em sucesso: retorno true somente depois de publicar todas
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 as escritas com reservas mantidas e depois retirar todas as participações e
 referências, liberar recursos e desativar contexto/profundidade. A execução não
 pode observar publicação parcial pelo protocolo.
 
-<<<<<<< HEAD
 Em CONFLICT/INVALID antes da publicação, end preserva slot, profundidade,
 reservas, referências e buffers para os cleanups e o descarte explícito pelo
 controle externo. Contexto válido fica condenado pela causa efetiva, mantendo
@@ -348,19 +279,6 @@ publicação, nenhuma falha recuperável ou rollback é permitido.
 Esta escolha substitui a proposta anterior de end-false que já descartava a
 tentativa. Nenhum chamador funcional existia para migrar; a ponte GOMP permanece
 independente e os stubs retornam INVALID sem executar qualquer descarte.
-=======
-No modelo ilustrativo de retorno false por falha recuperável antes da publicação,
-end é responsável por conduzir o descarte completo antes de retornar false. O
-chamador reinicia a região externa, sem chamar rollback uma segunda vez. Falha
-permanente usa tratamento separado; false não a converte em conflito. Na política
-de reservas persistentes, conflitos são detectados nos acessos; não inventar uma
-revalidação por versões ou uma falha de commit obrigatória se não forem necessárias.
-Depois da primeira publicação, não retornar false nem tentar rollback.
-
-Este modelo de propriedade do descarte é uma proposta para eliminar ambiguidade,
-não ABI consolidada. Se a implementação escolher end que só sinaliza falha,
-revisar este contrato e todos os chamadores antes de integrar; não misturar modelos.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ### stm_rollback: operação de descarte
 
@@ -372,7 +290,6 @@ outro descarte da mesma tentativa.
 
 Pós-condições: nenhuma escrita especulativa publicada; reservas/participações
 retiradas, referências/buffers liberados exatamente uma vez, todos os níveis
-<<<<<<< HEAD
 internos desfeitos, tentativa CLOSED e contexto liberado/slot NULL. Profundidade
 zerada antes da liberação, sem consultar contexto depois de free. Valores originais não
 precisam ser restaurados pois não foram escritos; efeitos externos não são
@@ -382,23 +299,11 @@ O dono do descarte é sempre o controle externo: chama newtm_discard após falha
 de acesso ou end, com cleanups suportados já executados e causa salva fora do
 contexto. OK consome o contexto, zera slot e significa somente limpeza concluída;
 INVALID detectável preserva slot e não permite retry. Não retorna CONFLICT.
-=======
-internos desfeitos e contexto inativo/profundidade zero. Valores originais não
-precisam ser restaurados pois não foram escritos; efeitos externos não são
-revertidos. Preservar a causa para escolher retry ou erro permanente.
-
-O dono do descarte é o controle externo: chama rollback após falha de acesso;
-no modelo end-false acima, end conduz a operação e o chamador não a repete.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 Rollback não reinicia código nem espera. Duplo descarte é violação, não uma
 idempotência garantida. Falha estrutural na limpeza não autoriza publicar,
 continuar com estado inconsistente ou repetir indefinidamente.
 
-<<<<<<< HEAD
 ### Confirmação como fase e backoff como helper interno
-=======
-### Confirmação e backoff sem novos símbolos obrigatórios
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 Confirmação: exige tentativa saudável, recursos preparados e reservas compatíveis
 mantidas para todos os objetos; nenhuma operação falível após a primeira escrita
@@ -411,13 +316,9 @@ a buffers invalidados. Ao retornar, não modifica dados do programa nem reativa 
 contexto: apenas permite nova tentativa. Contadores e duração usam aritmética
 limitada, espera progressiva com teto por espera e tentativas sem limite conforme
 a política. Não promete justiça ou conclusão; falha permanente não entra nesse
-<<<<<<< HEAD
 caminho. O helper interno newtm_backoff(size_t attempt) recebe contagem consecutiva de
 conflitos, primeira espera=1, saturada em SIZE_MAX pelo chamador. Fórmula temporal
 e jitter continuam pendentes; o stub não espera e retorna INVALID.
-=======
-caminho. Parâmetros temporais, jitter e eventual assinatura continuam pendentes.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ## Estados de acesso e passagem para descarte
 
@@ -590,7 +491,6 @@ void auxiliar(void) { /* pode chamar omp_taskyield() ou encontrar taskwait */ }
 
 Produzir alterações de código, testes reproduzíveis e documentação das decisões semânticas. Distinguir explicitamente garantias implementadas de limitações. Não acrescentar diretiva de abort explícito, não implementar nested commit independente e não utilizar `setjmp`/`longjmp` sem uma nova decisão de projeto justificada.
 
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -622,5 +522,3 @@ Slots e dados são preservados, inclusive em end/discard. Nenhuma função é
 exportada, nenhuma ABI GOMP foi alterada e nenhum builtin foi acrescentado.
 Contratos completos e validação: [PRIMITIVES](OPENMP_TRANSACTION_PRIMITIVES.md) e
 [IMPLEMENTATION](OPENMP_TRANSACTION_IMPLEMENTATION.md).
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

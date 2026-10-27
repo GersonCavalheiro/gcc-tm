@@ -11,11 +11,7 @@ visibilidade no ponto da diretiva e obter seus tipos. Leia também
 [OPENMP_TRANSACTION_ACCESS_AGENT.md](OPENMP_TRANSACTION_ACCESS_AGENT.md).
 
 Este documento foi elaborado por inspeção dos fontes locais. Os caminhos são
-<<<<<<< HEAD
 relativos à raiz dos fontes `/usr/src/gcc-omp-transaction`; o build fica em
-=======
-relativos à raiz dos fontes `/usr/src/gcc-16.2.0`; o build fica em
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 `/usr/src/gcc-build`. Localize funções pelo nome e confira seus chamadores.
 A criação deste guia não implementa a validação no compilador nem altera a
 semântica da diretiva. Não acrescente sincronização ou memória transacional
@@ -302,7 +298,6 @@ subacessos e permissões segundo o agente de acesso, com testes de campo/element
 referências, aliases suportados, tipos rejeitados e private/reduction externos.
 Não apresentar validação de nomes como prova de cobertura da instrumentação.
 Relate o contrato de entidades aceitas, os testes e limitações remanescentes.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -318,5 +313,3 @@ classificação e evidências estão no inventário e no relatório de implement
 A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
 Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
 `/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

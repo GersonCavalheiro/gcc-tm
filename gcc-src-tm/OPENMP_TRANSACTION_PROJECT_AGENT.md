@@ -13,11 +13,7 @@ etapas futuras, mudar a política ou consolidar uma ABI ainda pendente. Instruç
 do usuário prevalecem. Ao executar uma tarefa, conferir os fontes e atualizar o
 estado somente com o que foi efetivamente implementado e verificado.
 
-<<<<<<< HEAD
 Os caminhos são relativos a `/usr/src/gcc-omp-transaction`. O build existente está em
-=======
-Os caminhos são relativos a `/usr/src/gcc-16.2.0`. O build existente está em
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 `/usr/src/gcc-build`, separado dos fontes. Localizar funções pelo nome, pois
 números de linha mudam. Não confundir resultados históricos com testes executados
 na tarefa em andamento.
@@ -61,19 +57,12 @@ de uma região parallel externa; transaction não cria uma equipe por si só.
 | [OPENMP_CRITICAL_AGENT.md](OPENMP_CRITICAL_AGENT.md) | Construção análoga para estudar parsing, lowering e mutexes; não define STM. |
 | [OPENMP_TRANSACTION_SCOPE_AGENT.md](OPENMP_TRANSACTION_SCOPE_AGENT.md) | Resolução de nomes, categorias, tipos, identidade e preservação/remapeamento de dados. |
 | [OPENMP_TRANSACTION_HASH_AGENT.md](OPENMP_TRANSACTION_HASH_AGENT.md) | Política geral, estrutura da hash, referências, callbacks e ponte atual de rastreamento. |
-<<<<<<< HEAD
 | [OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md](OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md) | Etapa de hash operacional posterior aos esqueletos: adaptação da ponte, testes e critérios de entrega; não altera o estado implementado. |
 | [OPENMP_TRANSACTION_ACCESS_AGENT.md](OPENMP_TRANSACTION_ACCESS_AGENT.md) | Contratos de newtm_read/write, objeto/deslocamento, sincronização e instrumentação. |
 | [OPENMP_TRANSACTION_ABORT.md](OPENMP_TRANSACTION_ABORT.md) | Ciclo de vida, estados de falha, cleanups, descarte, confirmação e reinício externo. |
 | [OPENMP_TRANSACTION_PRIMITIVES.md](OPENMP_TRANSACTION_PRIMITIVES.md) | Inventário central: assinaturas, propriedade, estados, efeitos e chamadas; separa stubs e operações conceituais. |
 | [OPENMP_TRANSACTION_IMPLEMENTATION.md](OPENMP_TRANSACTION_IMPLEMENTATION.md) | Estado de implementação, contratos locais dos helpers, evidências e histórico identificado como tal. |
 | [OPENMP_TRANSACTION_AUDIT.md](OPENMP_TRANSACTION_AUDIT.md) | Auditoria de 2026-10-21: verificação dos fontes/contratos, resultados atuais, correção do verificador e limites. |
-=======
-| [OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md](OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md) | Especificação da próxima etapa: hash operacional, adaptação da ponte, testes e critérios de entrega; não altera o estado implementado. |
-| [OPENMP_TRANSACTION_ACCESS_AGENT.md](OPENMP_TRANSACTION_ACCESS_AGENT.md) | Contratos de newtm_read/write, objeto/deslocamento, sincronização e instrumentação. |
-| [OPENMP_TRANSACTION_ABORT.md](OPENMP_TRANSACTION_ABORT.md) | Ciclo de vida, estados de falha, cleanups, descarte, confirmação e reinício externo. |
-| [OPENMP_TRANSACTION_IMPLEMENTATION.md](OPENMP_TRANSACTION_IMPLEMENTATION.md) | Inventário de contratos, estado de implementação, evidências e histórico identificado como tal. |
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 A hash mantém registros e referências físicas. A camada de acesso/política
 mantém reservas e valores privados. O controle de abort conduz propagação de
@@ -124,7 +113,6 @@ Contexto local à thread só é válido sob a restrição de executar integralme
 na mesma tarefa, sem pontos de escalonamento durante toda a tentativa, inclusive
 em chamadas transitivas. Ser uma tarefa tied, isoladamente, não assegura isso.
 
-<<<<<<< HEAD
 A máquina especificada em
 [ABORT](OPENMP_TRANSACTION_ABORT.md#máquina-de-estados-da-tentativa) distingue
 ACTIVE, CONFLICTED, INVALID, PUBLISHING e CLOSED, declarados como
@@ -137,8 +125,6 @@ o slot antes de liberar recursos. Esse consumidor é o único dono da limpeza.
 O enum e os contratos estão definidos; contexto, transições e guardas funcionais
 continuam por implementar. Os stubs não anunciam confirmação bem-sucedida.
 
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 ### Hash global e sincronização
 
 A hash prevista é global à instância do runtime, compartilhada entre threads,
@@ -295,13 +281,8 @@ não devem ser exportados apenas para suprir a instrumentação ou testes.
 | --- | --- |
 | [libgomp/newtm-hash.h](libgomp/newtm-hash.h) | Tipos opacos, enum de estados, capacidade padrão, callbacks e nove primitivas internas da hash. |
 | [libgomp/newtm-hash.c](libgomp/newtm-hash.c) | Estruturas de tabela/bucket/entrada e corpos de depuração; também hospeda provisoriamente a ponte GOMP_transaction_* e seu contexto de rastreamento. |
-<<<<<<< HEAD
 | [libgomp/newtm-transaction.h](libgomp/newtm-transaction.h) | Contexto opaco, enums de resultado de acesso/ciclo de vida, enum de estados da tentativa e oito declarações ocultas (read/write e seis operações de ciclo de vida), com contratos futuros. |
 | [libgomp/newtm-transaction.c](libgomp/newtm-transaction.c) | Oito esqueletos que imprimem parâmetros, fazem fflush e retornam INVALID; begin também inicializa outermost=false. |
-=======
-| [libgomp/newtm-transaction.h](libgomp/newtm-transaction.h) | Contexto opaco, estados de acesso e declarações ocultas de newtm_read/write, com contratos futuros. |
-| [libgomp/newtm-transaction.c](libgomp/newtm-transaction.c) | Esqueletos read/write que imprimem parâmetros, fazem fflush e retornam INVALID. |
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 | [libgomp/libgomp.h](libgomp/libgomp.h) | Campo newtm_transaction_context no estado da thread e infraestrutura interna utilizada. |
 | [libgomp/team.c](libgomp/team.c) | Inicialização do ponteiro de contexto no ciclo de vida da thread. |
 | [libgomp/libgomp_g.h](libgomp/libgomp_g.h) | Protótipos da ponte GOMP_transaction_* atual. |
@@ -342,11 +323,8 @@ significa que tenham recebido implementação específica de transaction:
 | [transaction_test/transaction_exemplo.c](transaction_test/transaction_exemplo.c) | Máximo paralelo com referência sequencial e empate; usa critical externo para sincronização real. |
 | [transaction_test/transaction_aninhamento.c](transaction_test/transaction_aninhamento.c) | Aninhamento lexical/por função, lista interna e duplicatas, sem concorrência. |
 | [transaction_test/verificar.py](transaction_test/verificar.py) | Asserções sobre resultados, contagens e ordem dos logs da ponte. |
-<<<<<<< HEAD
 | [transaction_test/lifecycle_stubs.c](transaction_test/lifecycle_stubs.c) | Contratos dos seis stubs de ciclo de vida, com slots, canários e limites. |
 | [transaction_test/verificar_lifecycle.py](transaction_test/verificar_lifecycle.py) | Logs e símbolos internos, ligado ao archive do build pelo alvo check-lifecycle. |
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 | [transaction_test/Makefile](transaction_test/Makefile) | Compilação com GCC e libgomp do build local; alvo check. |
 | [transaction_test/README.md](transaction_test/README.md) | Comandos, cobertura e limites dos exemplos. |
 | [transaction_test/.gitignore](transaction_test/.gitignore) | Exclusão dos executáveis/logs locais de .build. |
@@ -381,15 +359,12 @@ não testes permanentes ou dependências da distribuição.
 - Esqueletos newtm_read/write internos, incluídos no build da libgomp. Imprimem os
   cinco parâmetros, fazem fflush(stdout) e retornam NEWTM_ACCESS_INVALID. Não
   desreferenciam parâmetros, modificam contexto/buffers ou validam acessos.
-<<<<<<< HEAD
 - Seis esqueletos internos de ciclo de vida: begin/register/end/discard e os
   helpers fail/backoff, no mesmo fonte/cabeçalho de read/write. Retornam
   NEWTM_LIFECYCLE_INVALID; apenas begin inicializa outermost=false. Slots e dados
   permanecem preservados. Saída interna/commit são fases futuras de end.
 - Contrato futuro de falha: end preserva recursos; controle externo descarta
   explicitamente depois dos cleanups, com causa salva antes da liberação.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 - -ftransaction-debug controla mensagens do compilador em stderr, desativadas por
   padrão. Os printf do runtime continuam em stdout e não são controlados por ela.
 
@@ -398,11 +373,7 @@ não testes permanentes ou dependências da distribuição.
 Não há tabela hash operacional, protocolo real de reservas, visão privada dos
 dados, instrumentação automática de leitura/escrita, commit, abort funcional,
 rollback ou reinício de tentativas. O compilador e a ponte de rastreamento não
-<<<<<<< HEAD
 chamam newtm_read/write nem os seis stubs de ciclo de vida. Não existe ponte exportada de acesso nem sua ABI final.
-=======
-chamam newtm_read/write. Não existe ponte exportada de acesso nem sua ABI final.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 O contexto opaco das primitivas de acesso ainda não é uma implementação do
 contexto funcional. O contexto de rastreamento em newtm-hash.c é provisório e
@@ -421,7 +392,6 @@ além de testes diretos. A etapa dos esqueletos read/write reconstruiu libgomp c
 -Wall -Werror, verificou impressão de parâmetros, INVALID, preservação de buffers
 e visibilidade interna. Os exemplos locais passaram para a etapa de rastreamento.
 
-<<<<<<< HEAD
 A etapa de ciclo de vida reconstruiu a libgomp com -Wall -Werror, executou
 22 chamadas de contrato pelo alvo check-lifecycle (incluindo visibilidade) e
 recompilou/executou os exemplos. Detalhes no relatório de implementação.
@@ -433,12 +403,6 @@ e o protocolo de consumo único em ABORT, sem implementar contexto ou transiçõ
 A libgomp foi reconstruída; check-lifecycle passou com 24 chamadas, incluindo
 descarte repetido e saída posterior sem sucesso fictício. Os exemplos passaram
 com 1/2/4 threads e aninhamento; não houve nova execução DejaGNU nessa etapa.
-=======
-Esses resultados não validam isolamento ou STM. Este agente foi produzido por
-inspeção dos fontes e documentos; nenhum build ou teste foi reexecutado para
-criá-lo. Consultar os comandos/logs do relatório e reproduzir os testes pertinentes
-na próxima alteração. Não apresentar a suíte completa como executada.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ## Orientação para as próximas etapas
 
@@ -456,7 +420,6 @@ printfs ou de uma execução que produza o resultado esperado.
 Atualizar este panorama, os contratos especializados e a documentação do usuário
 quando o comportamento mudar. Conservar a distinção entre intenção, contrato
 proposto, implementação efetiva e evidência de validação.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -482,5 +445,3 @@ esqueletos e verificações diretas de LTO, módulos, exceções e identidade de
 Foi corrigido um falso positivo do verificador lifecycle sob Python -O/-OO.
 A auditoria confirmou a etapa de rastreamento/esqueletos; não valida STM funcional
 ou a suíte completa. Instruções de runtime local e evidências constam no relatório.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

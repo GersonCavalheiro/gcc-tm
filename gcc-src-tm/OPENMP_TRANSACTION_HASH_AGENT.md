@@ -143,7 +143,6 @@ validar leituras enquanto as reservas persistirem.
    liberar referências. Desfazer todos os níveis internos de uma só vez, aguardar
    sem reservas e iniciar uma tentativa nova na entrada externa.
 
-<<<<<<< HEAD
 Estados definidos em `enum newtm_attempt_state`, no cabeçalho interno de
 transaction: ACTIVE, CONFLICTED, INVALID, PUBLISHING e CLOSED, com prefixo
 NEWTM_ATTEMPT_. A máquina e o consumo único estão em
@@ -156,12 +155,6 @@ Entrar em PUBLISHING exige concluir toda preparação falível e é irrevogável
 Antes de liberar qualquer recurso, end/discard marca CLOSED e retira o contexto
 do slot proprietário; somente esse consumidor conclui a limpeza. A hash não
 executa essa máquina nem decide o descarte. A tentativa seguinte
-=======
-Estados conceituais: `ATIVA -> EM_CONFIRMACAO -> CONCLUIDA` no caminho de sucesso;
-`ATIVA -> EM_ABORT -> EM_ESPERA -> ATIVA` no caminho de repetição. São descrições
-do protocolo, não nomes obrigatórios de enums. Uma tentativa em confirmação não
-pode voltar a abortar depois de publicar a primeira escrita. A tentativa seguinte
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 não herda reservas, registros dinâmicos ou buffers da tentativa abortada: as
 listas são processadas novamente conforme a execução. Contadores de backoff
 podem persistir entre tentativas; dados do programa não podem vazar pelo reinício.
@@ -429,12 +422,8 @@ Implementar em C, seguindo as convenções locais da libgomp:
   encadeamento, alocação, sincronização e contagem de referências.
 - `libgomp/newtm-hash.h`: interface interna, tipos opacos, contratos e código
   de estado. Não instalar esse cabeçalho como API pública OpenMP.
-<<<<<<< HEAD
 - `libgomp/newtm-transaction.c` e `libgomp/newtm-transaction.h`: seis esqueletos
   internos de ciclo de vida (ver inventário) e esqueletos
-=======
-- `libgomp/newtm-transaction.c` e `libgomp/newtm-transaction.h`: esqueletos
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
   internos de leitura/escrita que imprimem parâmetros e retornam INVALID.
   Contexto e política funcionais continuam futuros; nenhuma chamada a esses
   acessos é gerada pelo compilador nesta etapa.
@@ -1003,7 +992,6 @@ O fonte e o cabeçalho estão incluídos em Makefile.am/Makefile.in. Os símbolo
 newtm_hash_* continuam internos; somente a ponte é exportada. Build e testes
 históricos estão registrados em OPENMP_TRANSACTION_IMPLEMENTATION.md e não
 constituem validação funcional da tabela.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -1028,5 +1016,3 @@ newtm_end/discard retirarão reservas antes de liberar referências. Essa propri
 é contrato futuro: os seis stubs não chamam a hash nem possuem contexto funcional.
 A ponte GOMP de rastreamento permanece em newtm-hash.c, com seus handles nulos.
 NEWTM_LIFECYCLE_* não é NEWTM_HASH_*; falha estrutural não vira conflito por cast.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

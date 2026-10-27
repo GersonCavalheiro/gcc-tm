@@ -26,7 +26,6 @@ a definição da ponte e a distinção entre commit, descarte e retry no encerra
 atualmente representado por TRY_FINALLY. Tipos, aliases e operações sem suporte
 precisam ser restringidos. Registro e rastreamento não comprovam STM funcional.
 
-<<<<<<< HEAD
 ## Definição da máquina de estados — 2026-10-21
 
 Acrescentado `enum newtm_attempt_state` em `libgomp/newtm-transaction.h`,
@@ -148,8 +147,6 @@ Não foi executada a suíte DejaGNU ou feito rebuild do compilador nesta etapa:
 seus fontes e a ABI GOMP não mudaram. Os testes cobrem contratos dos stubs e a
 compatibilidade do rastreamento; não demonstram isolamento/commit/retry reais.
 
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 ## Esqueletos das primitivas de acesso
 
 Criados `libgomp/newtm-transaction.c` e `.h` com newtm_read/newtm_write, contexto
@@ -186,7 +183,6 @@ explicitadas. Não foi executada a suíte completa do GCC/libgomp nesta etapa.
 
 ## Inventário e localização dos contratos
 
-<<<<<<< HEAD
 O inventário central está em
 [OPENMP_TRANSACTION_PRIMITIVES.md](OPENMP_TRANSACTION_PRIMITIVES.md): registra
 as assinaturas internas existentes, proprietário dos recursos, estados, efeitos
@@ -204,25 +200,6 @@ acrescentados conforme a seção acima; as operações reais permanecem futuras.
 
 Funções genéricas do GCC/libgomp e primitivas critical são referências existentes,
 não novas APIs STM. Não confundir retornos dos stubs com contratos funcionais.
-=======
-A revisão dos agentes identificou condições antes dispersas e lacunas no ciclo
-de vida. Os contratos agora estão reunidos por camada, com pré-condições,
-sucesso, falha, propriedade dos recursos e sincronização. Não confundir os
-contratos funcionais futuros com os retornos dos esqueletos atuais.
-
-| Operações concebidas | Contrato de referência |
-| --- | --- |
-| Nove newtm_hash_* e callbacks visit/destroy_policy | Seção de pré/pós-condições consolidadas do agente da hash. |
-| GOMP_transaction_begin/register/end e initialize/finalize de rastreamento | Seção da ponte atual no agente da hash; não oferece STM. |
-| newtm_read/write | Agente de acesso; contrato funcional e exceção explícita para os stubs. |
-| stm_begin/end/rollback, confirmação e backoff conceituais | Agente de abort; efeitos propostos e pendências de ABI. |
-| Cinco helpers newtm_* do compilador | Contratos locais abaixo, complementados pelo agente de escopo. |
-| GOMP_critical_start/end e name_start/name_end existentes | Agente de critical; contratos descritivos, sem alteração de implementação. |
-
-Funções genéricas do GCC/libgomp citadas como referência não são novas primitivas
-desta extensão. Novas funções auxiliares ou pontes deverão ter contrato próprio
-antes de serem usadas; não inferir uma ABI de nomes ilustrativos.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ### Contratos dos helpers atuais do compilador
 
@@ -235,11 +212,7 @@ são CONFLICT/INVALID do runtime. Contratos de alocação/GC são os usuais do G
 | newtm_c_parser_transaction | Parser C válido na posição esperada pelo dispatcher; contexto de construção e bindings ativos; localização válida e if_p sob contrato do parser de bloco. | Consome a diretiva e analisa o corpo; resolve lista antes de entrar no corpo; preserva declarações aceitas na ordem; constrói/acrescenta OMP_TRANSACTION. Entradas inválidas são diagnosticadas e recuperadas até EOL, sem certificar validade de lista parcial. |
 | newtm_cp_parser_transaction | Parser/token de pragma válidos e contexto do dispatcher; bindings e estado C++ coerentes. | Mesmo percurso, com busca C++, acesso/ambiguidade, referências externas e dados para instanciação. Diagnóstico já emitido não implica nó de sucesso semanticamente válido. |
 | newtm_finish_transaction | Localização, corpo e lista de declarações como árvores GCC válidas/rastreadas; lista conforme representação aceita, possivelmente vazia. | Constrói OMP_TRANSACTION com tipo void, corpo e lista, acrescenta ao fluxo e retorna o nó. Não resolve nomes, registra endereços ou instrumenta acessos. |
-<<<<<<< HEAD
 | newtm_build_transaction | Sequência GIMPLE válida e pertencente ao corpo a transferir, possivelmente vazia. | Retorna novo GIMPLE_OMP_TRANSACTION/GSS_OMP com esse corpo; chamado na gimplificação e na cópia/remapeamento em tree-inline.cc. Não copia a lista GENERIC, não emite acesso ou commit. |
-=======
-| newtm_build_transaction | Sequência GIMPLE válida e pertencente ao corpo a transferir, possivelmente vazia. | Retorna novo GIMPLE_OMP_TRANSACTION/GSS_OMP com esse corpo; não copia a lista GENERIC, não emite acesso ou commit. |
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 | newtm_lower_transaction | Iterador válido sobre GIMPLE_OMP_TRANSACTION, contexto omp existente e corpo preparado para lower_omp no contexto externo. | Transforma o corpo com ctx->outer e substitui o marcador pela sequência; chamadas de rastreamento já presentes são preservadas. Não consultar o marcador removido; não há instrumentação funcional. |
 
 Na implementação futura, preservar/remapear metadados, atualizar consumidores e

@@ -21,11 +21,7 @@ funcionais continuam propostos. Não representam ABI exportada ou aprovação de
 mecanismos ainda pendentes. Instruções do usuário prevalecem sobre este guia.
 Não ampliar o subconjunto suportado para contornar uma pendência semântica.
 
-<<<<<<< HEAD
 Os fontes ficam em `/usr/src/gcc-omp-transaction`; o build existente fica em
-=======
-Os fontes ficam em `/usr/src/gcc-16.2.0`; o build existente fica em
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 `/usr/src/gcc-build`. Localize funções pelo nome; números de linha mudam.
 
 Estado conferido nos fontes:
@@ -47,7 +43,6 @@ Não usar os retornos INVALID/handles nulos dos stubs como implementação de
 sucesso ou de conflito. A integração funcional depende da hash e do contexto
 transacional reais, com os chamadores da ponte atual revisados.
 
-<<<<<<< HEAD
 Os mesmos arquivos agora também abrigam seis esqueletos de ciclo de vida;
 ver [PRIMITIVES](OPENMP_TRANSACTION_PRIMITIVES.md). Read/write ainda não chamam
 newtm_fail. Na implementação futura, esse helper recebe causa de acesso e
@@ -68,8 +63,6 @@ End externo bem-sucedido ou discard externo marca CLOSED e retira o slot antes
 da limpeza física, invalidando os empréstimos. O enum não implementa transições;
 os stubs mantêm retorno INVALID sem marcar estado ou anunciar sucesso.
 
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 ## Interface interna e contrato funcional proposto
 
 A camada já tem um esqueleto em `libgomp/newtm-transaction.h` e
@@ -505,7 +498,6 @@ pode anunciar acesso transacional quando houver hash/contexto funcionais,
 reservas corretas, instrumentação completa no subconjunto admitido, propagação
 segura da falha, publicação/descarte e testes correspondentes. Relatar
 explicitamente tudo que continuar pendente e atualizar os agentes afetados.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -521,5 +513,3 @@ classificação e evidências estão no inventário e no relatório de implement
 A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
 Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
 `/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

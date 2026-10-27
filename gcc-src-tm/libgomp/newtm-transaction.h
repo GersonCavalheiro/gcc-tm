@@ -22,23 +22,15 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
-<<<<<<< HEAD
 /* Internal access and lifecycle interfaces for the experimental runtime.
    Trace-only skeletons: print parameters and return INVALID.  Only begin's
    nonnull OUTERMOST output is initialized to false; context slots, contexts
    and buffers are preserved.  Functional contracts describe future work.  */
-=======
-/* Internal access interface for the experimental transaction runtime.
-   Trace-only skeleton: both operations print parameters and return INVALID.
-   No argument is dereferenced and no buffer or context is modified.  The
-   functional contracts below describe future work, not current behavior.  */
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 #ifndef LIBGOMP_NEWTM_TRANSACTION_H
 #define LIBGOMP_NEWTM_TRANSACTION_H
 
 #include <stddef.h>
-<<<<<<< HEAD
 #include <stdbool.h>
 
 struct newtm_context;
@@ -60,10 +52,6 @@ enum newtm_attempt_state
   NEWTM_ATTEMPT_PUBLISHING,
   NEWTM_ATTEMPT_CLOSED
 };
-=======
-
-struct newtm_context;
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 enum newtm_access_status
 {
@@ -72,7 +60,6 @@ enum newtm_access_status
   NEWTM_ACCESS_INVALID
 };
 
-<<<<<<< HEAD
 /* Operation results, not context states.  Keep separate from access/hash
    results; translate explicitly.  INVALID in current stubs means unavailable,
    not validated arguments.  No stub ever reports success or retry.  */
@@ -173,8 +160,6 @@ extern enum newtm_lifecycle_status newtm_discard (struct newtm_context **slot)
 extern enum newtm_lifecycle_status newtm_backoff (size_t attempt)
   __attribute__ ((visibility ("hidden")));
 
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 /* Future contract: read SIZE bytes at OFFSET in registered canonical OBJECT
    into private DESTINATION using active, owned CTX.  Require positive SIZE,
    valid nonoverlapping storage and an in-bounds range.  Obtain a compatible

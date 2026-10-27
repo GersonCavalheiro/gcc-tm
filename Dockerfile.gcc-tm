@@ -1,32 +1,129 @@
+# ============================================================
+# GCC Transaction Development Environment
+#
+# Base: Ubuntu 24.04
+# GCC: fontes fornecidos pelo host (bind mount)
+# Agentes: Codex, OpenCode e Claude Code
+#
+# Os fontes e os resultados da compilação permanecem no host.
+# ============================================================
+
 FROM ubuntu:24.04
+
+# ============================================================
+# 1. Configuração geral
+# ============================================================
+
 ENV DEBIAN_FRONTEND=noninteractive \
-    GCC_VERSION=16.2.0 \
     TERM=xterm-256color \
-    EDITOR=vim \
-    PATH=/home/developer/.local/bin:$PATH
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential binutils bison flex make cmake ninja-build \
-    gdb git vim less file wget curl ca-certificates gnupg \
-    xz-utils bzip2 gzip tar unzip patch diffutils pkg-config \
-    python3 python3-pip perl texinfo gawk \
-    libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
-    zlib1g-dev libzstd-dev sudo \
+    EDITOR=vim
+
+# ============================================================
+# 2. Dependências fundamentais do GCC
+#
+# Camada estável: alterações pouco frequentes.
+# ============================================================
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        bison \
+        flex \
+        libgmp-dev \
+        libmpfr-dev \
+        libmpc-dev \
+        libisl-dev \
+        zlib1g-dev \
+        python3 \
+        perl \
+        texinfo \
+        gawk \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/node-setup.sh \
+
+# ============================================================
+# 3. Ferramentas de desenvolvimento
+#
+# Camada independente das dependências fundamentais.
+# ============================================================
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gdb \
+        git \
+        vim \
+        less \
+        curl \
+        ca-certificates \
+        gnupg \
+        xz-utils \
+        diffutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================
+# 4. Instalação do Node.js 22
+#
+# Dependência do Codex e OpenCode.
+# ============================================================
+
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x \
+        -o /tmp/node-setup.sh \
     && bash /tmp/node-setup.sh \
-    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        nodejs \
     && rm -f /tmp/node-setup.sh \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g @openai/codex @opencode/cli \
-    && npm cache clean --force
-ARG USER_UID=1000
-ARG USER_GID=1000
-RUN groupadd --gid ${USER_GID} developer \
-    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash developer \
-    && mkdir -p /usr/src/gcc-build /usr/src/gcc-omp-transaction \
-    && chown -R developer:developer /usr/src/gcc-build /usr/src/gcc-omp-transaction
-USER developer
-RUN curl -fsSL https://claude.ai/install.sh | bash
-WORKDIR /usr/src/gcc-omp-transaction
-CMD ["/bin/bash"]
 
+# ============================================================
+# 5. Configuração do usuário
+#
+# Ubuntu 24.04 possui o usuário ubuntu (UID 1000).
+#
+# Utilizamos esse usuário para evitar conflitos de UID/GID.
+# ============================================================
+
+RUN mkdir -p /usr/src/gcc-tm \
+    && chown ubuntu:ubuntu /usr/src/gcc-tm
+
+ENV HOME=/home/ubuntu \
+    PATH="/home/ubuntu/.local/bin:${PATH}"
+
+# ============================================================
+# 6. Instalação do Codex
+#
+# Camada independente.
+# ============================================================
+
+RUN npm install -g @openai/codex \
+    && npm cache clean --force
+
+# ============================================================
+# 7. Instalação do OpenCode
+#
+# Camada independente.
+# ============================================================
+
+RUN npm install -g opencode-ai \
+    && npm cache clean --force
+
+# ============================================================
+# 8. Instalação do Claude Code
+#
+# Instalação como usuário não privilegiado.
+# ============================================================
+
+USER ubuntu
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# ============================================================
+# 9. Diretório de trabalho
+#
+# O projeto é montado a partir da máquina hospedeira.
+# ============================================================
+
+WORKDIR /usr/src/gcc-tm
+
+CMD ["/bin/bash"]

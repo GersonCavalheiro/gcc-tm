@@ -22,19 +22,13 @@
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
 
-<<<<<<< HEAD
 /* Trace-only access and lifecycle skeletons.  Only begin initializes its
    OUTERMOST output; no context, slot or program data is inspected or changed.  */
-=======
-/* Trace-only access skeleton.  Do not validate or dereference arguments,
-   acquire reservations, copy data, or change transaction state here.  */
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 #include "libgomp.h"
 #include "newtm-transaction.h"
 #include <stdio.h>
 
-<<<<<<< HEAD
 /* TODO: Create/enter a context under the lifecycle contract.  Keep the in/out
    slot intact on failure: clearing it could lose an existing outer attempt.  */
 enum newtm_lifecycle_status
@@ -102,8 +96,6 @@ newtm_backoff (size_t attempt)
   return NEWTM_LIFECYCLE_INVALID;
 }
 
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 /* TODO: Implement the read contract in newtm-transaction.h and
    OPENMP_TRANSACTION_ACCESS_AGENT.md once its dependencies are available.  */
 enum newtm_access_status

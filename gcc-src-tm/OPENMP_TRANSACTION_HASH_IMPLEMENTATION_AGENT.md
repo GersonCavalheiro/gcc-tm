@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 # Agente de especificação: etapa de hash operacional de transaction
-=======
-# Agente de especificação: próxima etapa de transaction
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ## Missão e autorização
 
@@ -23,15 +19,11 @@ Referências normativas do projeto:
 
 Conferir os fontes antes de executar. Os resultados registrados em outros
 documentos são históricos, não validação desta entrega. Trabalhar nos fontes
-<<<<<<< HEAD
 em /usr/src/gcc-omp-transaction e construir em /usr/src/gcc-build.
 
 A consolidação e os seis esqueletos internos de ciclo de vida foram entregues.
 A execução desta etapa funcional continua posterior aos esqueletos, conforme a
 sequência solicitada; verificar o estado no inventário antes de implementar.
-=======
-em /usr/src/gcc-16.2.0 e construir em /usr/src/gcc-build.
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 
 ## Resultado esperado e limites
 
@@ -43,12 +35,8 @@ válidas e liberá-las uma vez na saída externa, mantendo flat nesting.
 Registro não concede reserva de leitura/escrita e não acessa o valor do objeto.
 O corpo da diretiva continua acessando memória comum. Permanecem futuros:
 instrumentação de acessos, reservas, cópias privadas, commit, abort, rollback,
-<<<<<<< HEAD
 retry e backoff. newtm_read/write e os seis serviços de ciclo de vida
 permanecem esqueletos internos. Não ligá-los à ponte como operações funcionais. Não ampliar
-=======
-retry e backoff. newtm_read/write permanecem esqueletos internos. Não ampliar
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 gramática, tipos, tasking, suporte a dispositivos ou ABI pública nesta etapa.
 
 ## Decisão de projeto a registrar
@@ -192,7 +180,6 @@ a ponte usa referências válidas sem ignorar erros, recursos e locks têm
 propriedade definida, testes reproduzíveis cobrem os invariantes e a documentação
 descreve o novo estado. Relatar arquivos alterados, comandos, resultados e
 limitações. Não declarar STM, isolamento, rollback ou retry implementados.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -208,5 +195,3 @@ classificação e evidências estão no inventário e no relatório de implement
 A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
 Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
 `/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458

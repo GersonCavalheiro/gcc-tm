@@ -238,11 +238,7 @@ recuperável; não prometer validação de ponteiros pendentes. Toda saída deve
 propriedade de limpeza definida e não deixar lock retido inadvertidamente.
 
 Na extensão transaction, consultar o inventário em
-<<<<<<< HEAD
 [OPENMP_TRANSACTION_PRIMITIVES.md](OPENMP_TRANSACTION_PRIMITIVES.md) e
-=======
-[OPENMP_TRANSACTION_IMPLEMENTATION.md](OPENMP_TRANSACTION_IMPLEMENTATION.md) e
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
 os contratos especializados de hash, acesso e abort ali indicados. Funções
 existentes usadas como exemplo não viram novas APIs; protótipos ilustrativos
 não constituem ABI aprovada. Atualizar o contrato quando um esqueleto passar a
@@ -321,7 +317,6 @@ rg -n 'GOMP_parallel' gcc/omp-builtins.def gcc/omp-expand.cc libgomp
 
 Troque `parallel` e seus identificadores pela diretiva análoga escolhida. Leia
 as funções encontradas e seus chamadores antes de editar.
-<<<<<<< HEAD
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -337,5 +332,3 @@ classificação e evidências estão no inventário e no relatório de implement
 A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
 Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
 `/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
-=======
->>>>>>> 775307665b55aaf0c7f28e25bcb02f20d9019458
