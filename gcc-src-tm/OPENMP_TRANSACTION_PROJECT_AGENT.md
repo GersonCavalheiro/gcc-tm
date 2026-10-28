@@ -1,3 +1,155 @@
+## Checkpoint de regressão da base atual
+
+Alvo `make -C transaction_test check-checkpoint-contexto`, implementado em
+[checkpoint_contexto_pronto_para_registro.py](../transaction_test/checkpoint_contexto_pronto_para_registro.py).
+Reúne oito alvos existentes com recompilação dos testes, logs individuais,
+relatório JSON, timeout e parada na primeira falha. Nome do marco:
+contexto_pronto_para_registro. Não acrescenta cobertura STM nem substitui testes
+pendentes de OOM do contexto, descarte simultâneo ou matriz completa de estados.
+Reconstruir a libgomp antes de executar; sanitizadores não fazem parte do alvo.
+
+## Contexto: criação e limpeza implementadas — 2026-10-28
+
+Estruturas concretas em [newtm-context.h](libgomp/newtm-context.h), privadas à
+libgomp. newtm_begin recebe lease*, slot e outermost: transfere exclusivamente
+a lease da ponte ao contexto externo e preserva-a no aninhamento. O endereço do
+slot canônico deve permanecer estável; contexto guarda slot e execução dona para
+rejeitar consumo por cópia ou outra thread. Isso não valida ponteiros pendentes.
+
+newtm_fail registra a causa, com INVALID dominante, sem limpar recursos.
+newtm_discard desliga o slot e retira reservas sob o bucket; libera buffers,
+listas de intervalos, referências e registros fora dele, depois contexto e lease.
+O owner configura newtm_policy_destroy antes de publicar a tabela; o callback
+exige leitores/escritor vazios e libera somente metadados compartilhados.
+Todos os printf/fflush e diagnósticos permanecem fora dos mutexes.
+
+A ponte GOMP usa esse contexto para entrada e limpeza do rastreamento. Sua lista
+legada de objetos ainda é separada dos registros privados STM e é drenada antes
+do descarte. newtm_end só implementa saída interna; saída externa marca INVALID
+sem publicar, para descarte explícito. A ponte externa usa descarte de trace,
+não commit. Registro STM, criação sob demanda de metadados, reservas, valores
+privados, read/write, publicação e retry continuam pendentes. As estruturas de
+registros já existem para permitir limpeza, mas os testes as preparam por acesso
+privado: isso não significa que registro/acesso STM estejam implementados.
+
+check-lifecycle agora testa contextos reais, incluindo lease, aninhamento,
+slot copiado, outra thread, overflow, falhas dominantes, leitores compartilhados,
+limpeza de buffers/intervalos sem publicação e caminhos fatais. Testes owner,
+diagnósticos e exemplos/carga passaram. ASan/UBSan passaram no teste de contexto
+com fontes de hash/contexto instrumentadas; não há nova execução DejaGNU.
+
+## Lease e destrutor da política — decisões aceitas
+
+Transferir exclusivamente a lease da ponte para o contexto externo, invalidando
+o token de origem sem incrementar participações. Aninhamentos preservam a mesma
+lease. Liberá-la somente após toda a limpeza, inclusive releases e callbacks;
+na falha anterior à transferência, a ponte continua responsável pelo token.
+Não publicar contexto parcialmente inicializado nem duplicar admissão/liberação.
+
+Configurar o destrutor interno da política na criação da tabela global, antes
+de publicá-la, substituindo o NULL atual; manter o callback imutável durante sua
+vida útil. Criar metadados sob demanda: preparar candidato fora do bucket,
+instalar um só em entry_visit e liberar candidato excedente fora do mutex.
+
+Na limpeza, retirar leitores/escritor sob o bucket antes de liberar referências.
+Na última referência, release executa o destrutor fora do bucket. O destrutor
+verifica que leitores/escritor estão vazios e libera somente os metadados
+compartilhados; buffers privados pertencem aos registros. Participações residuais
+são violação interna fatal, nunca removidas à força. Não chamar código do usuário,
+adquirir reservas, acessar valores dos objetos ou liberar contextos nesse callback.
+A lease permanece ativa durante toda a execução do destrutor.
+
+Procedimentos implementados na base do contexto: owner configura destrutor
+interno e begin transfere a lease. Registro e acessos STM continuam pendentes.
+
+## Interface de classificação e estrutura aceita — 2026-10-28
+
+O usuário aceitou a [especificação das estruturas do contexto](OPENMP_TRANSACTION_CONTEXT_PROPOSAL.md):
+lista simples de registros estáveis por tentativa, escalares com buffer sob demanda
+e flags, agregados com buffer completo sob demanda e duas listas de intervalos,
+participação intrusiva de leitores e metadados compartilhados por entrada.
+As alternativas documentadas não substituem essa escolha inicial.
+
+A interface interna newtm_register(ctx, object, size, kind) recebe agora
+`enum newtm_object_kind`: NEWTM_OBJECT_SCALAR ou NEWTM_OBJECT_AGGREGATE.
+O compilador deve classificar o objeto canônico inteiro após validar seu tipo;
+arrays são AGGREGATE, ponteiros listados são SCALAR sem incluir o apontado.
+Não inferir classificação por tamanho/alinhamento. O registro privado conserva
+kind imutável; read/write consultam esse registro. Repetição exige tamanho e
+kind compatíveis; tag desconhecida ou incompatível é INVALID no contrato
+funcional, com limpeza segura e fatal para contexto válido, nunca retry.
+Não altera as nove primitivas da hash nem a ABI pública GOMP existente.
+
+A assinatura, o enum e o log numérico de kind já estão no código; newtm_register
+continua stub: imprime, faz fflush e retorna INVALID sem examinar contexto ou
+objeto. A estrutura aceita está em newtm-context.h, com criação e limpeza
+implementadas. Integrar classificação e registro STM no compilador/ponte.
+
+Estrutura inicial aceita: [estruturas e invariantes do contexto](OPENMP_TRANSACTION_CONTEXT_PROPOSAL.md).
+Implementar esse desenho, sem substituir pelas alternativas comparadas no documento.
+
+## Organização escolhida para o contexto
+
+Cada tentativa externa mantém uma lista de registros, compartilhada pelos níveis
+aninhados do mesmo contexto. Cada registro corresponde a um objeto canônico
+registrado e permanece em endereço estável até sua remoção na limpeza. Repetir o
+registro do mesmo objeto reutiliza o registro existente; a busca inicial é linear.
+Não introduzir agora vetor de registros nem índice privado adicional.
+
+O contexto contém controle da tentativa, profundidade, causa e lease do
+proprietário. Seus registros mantêm referências à hash, participação/reserva e
+representação privada. Metadados compartilhados de leitores/escritor permanecem
+associados à entrada da hash e sincronizados pelo mutex do bucket; não confundir
+esses metadados com o estado privado da tentativa.
+
+Escalares usam representação simples. Para agregados, escolher buffer da extensão
+completa do objeto, preenchido sob demanda, e listas de intervalos válidos e
+modificados. Alocar a extensão não implica ler ou inicializar todo o objeto.
+Intervalos modificados devem estar contidos nos válidos; leituras completam
+somente trechos solicitados ausentes e commit publica somente modificados.
+A unidade de conflito e os endereços lógicos originais permanecem preservados.
+
+Esta escolha define a organização inicial. Campos C, armazenamento dos escalares,
+representação dos limites/união de intervalos e ordem detalhada de liberação
+precisam ser especificados antes da implementação. Avaliar otimizações de busca
+e alocação após obter funcionamento correto. Nenhuma estrutura executável foi
+introduzida por esta atualização documental.
+
+## Fechamento do subconjunto inicial — decisão do usuário
+
+Todos os acessos, de leitura ou escrita, a objetos cuja vida começou antes da
+tentativa externa exigem registro explícito já alcançado no contexto. Não há
+registro implícito nem fallback à memória comum. Esta decisão substitui a
+permissão anterior de leituras externas não listadas: em `transaction(a) { a += b; }`,
+se b é preexistente, seu acesso exige registro explícito também. Temporários
+automáticos privados são permitidos nos tipos admitidos, recriados a cada retry
+e sem escapar da tentativa; não autorizam exceções ou cleanups do usuário.
+
+INVALID detectado com contexto válido é falha permanente: impedir novos efeitos
+normais, preservar a causa, propagá-la pelos epílogos preparados até o controle
+externo, concluir a limpeza interna segura e somente então emitir diagnóstico
+fatal. Não publicar valores nem executar retry. O descarte libera reservas,
+referências, buffers, contexto e participação do proprietário conforme a
+propriedade de cada recurso. Não introduzir cláusula nem resultado novo na
+linguagem; os status são canais internos. Contextos inválidos/alheios não podem
+ser desreferenciados ou limpos especulativamente. Falta de memória permanece
+fatal; não há promessa de recuperação de OOM nem sua conversão em CONFLICT.
+Essa decisão não muda os retornos das nove primitivas genéricas da hash.
+
+Ficam fora do primeiro subconjunto E/S, chamadas de sistema, locks do usuário e
+malloc/free executados pelo programa dentro da tentativa, inclusive por funções
+chamadas. Admitir alocação exigirá rastreamento de recursos e contrato de descarte
+ou liberação adiada. Alocação e sincronização internas do runtime continuam
+necessárias; seus logs de depuração não concedem suporte a E/S do programa.
+
+O critical do teste de carga é apoio ao rastreamento atual. Reavaliá-lo quando o
+teste verificar isolamento STM real; o teste atual não comprova esse isolamento
+nem constitui uma exceção às restrições do futuro subconjunto funcional.
+
+As decisões semânticas, incluindo cópias privadas, estão fechadas para definir
+o layout do contexto. Layout/ABI, filtros, diagnósticos e execução desse protocolo
+ainda precisam de implementação; os stubs atuais não passam a implementá-los.
+
 # Agente de visão geral do projeto transaction
 
 ## Missão e uso deste documento
@@ -13,8 +165,9 @@ etapas futuras, mudar a política ou consolidar uma ABI ainda pendente. Instruç
 do usuário prevalecem. Ao executar uma tarefa, conferir os fontes e atualizar o
 estado somente com o que foi efetivamente implementado e verificado.
 
-Os caminhos são relativos a `/usr/src/gcc-omp-transaction`. O build existente está em
-`/usr/src/gcc-build`, separado dos fontes. Localizar funções pelo nome, pois
+Os caminhos dos fontes são relativos a gcc-src-tm/; transaction_test/ fica
+na raiz do repositório, ao lado de gcc-build/. No contêiner atual a raiz é
+/usr/src/gcc-tm. Build sempre separado dos fontes. Localizar funções pelo nome, pois
 números de linha mudam. Não confundir resultados históricos com testes executados
 na tarefa em andamento.
 
@@ -57,7 +210,7 @@ de uma região parallel externa; transaction não cria uma equipe por si só.
 | [OPENMP_CRITICAL_AGENT.md](OPENMP_CRITICAL_AGENT.md) | Construção análoga para estudar parsing, lowering e mutexes; não define STM. |
 | [OPENMP_TRANSACTION_SCOPE_AGENT.md](OPENMP_TRANSACTION_SCOPE_AGENT.md) | Resolução de nomes, categorias, tipos, identidade e preservação/remapeamento de dados. |
 | [OPENMP_TRANSACTION_HASH_AGENT.md](OPENMP_TRANSACTION_HASH_AGENT.md) | Política geral, estrutura da hash, referências, callbacks e ponte atual de rastreamento. |
-| [OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md](OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md) | Etapa de hash operacional posterior aos esqueletos: adaptação da ponte, testes e critérios de entrega; não altera o estado implementado. |
+| [OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md](OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md) | Manutenção da hash já implementada, decisões adotadas, protocolo do proprietário, testes e pendências de validação; não reimplementar como tarefa futura. |
 | [OPENMP_TRANSACTION_ACCESS_AGENT.md](OPENMP_TRANSACTION_ACCESS_AGENT.md) | Contratos de newtm_read/write, objeto/deslocamento, sincronização e instrumentação. |
 | [OPENMP_TRANSACTION_ABORT.md](OPENMP_TRANSACTION_ABORT.md) | Ciclo de vida, estados de falha, cleanups, descarte, confirmação e reinício externo. |
 | [OPENMP_TRANSACTION_PRIMITIVES.md](OPENMP_TRANSACTION_PRIMITIVES.md) | Inventário central: assinaturas, propriedade, estados, efeitos e chamadas; separa stubs e operações conceituais. |
@@ -186,7 +339,8 @@ válidos, descarta valores privados, retira reservas/participações e libera
 referências/buffers exatamente uma vez. Depois espera sem reservas/locks e
 reinicia todo o bloco externo, incluindo funções e listas internas.
 
-INVALID é falha permanente no contrato funcional e não autoriza retry infinito.
+INVALID é falha permanente no contrato funcional: nunca autoriza retry e, com
+contexto válido, exige limpeza segura seguida de diagnóstico fatal.
 Nos stubs atuais tem outro significado explicitamente temporário: ausência de
 implementação, sem validação ou alteração de estado.
 
@@ -195,22 +349,42 @@ política prevista. Não promete justiça, ausência de starvation ou conclusão
 Não usar setjmp/longjmp no retry normal nem atravessar destrutores por saltos
 arbitrários. Reconstruir temporários privados de cada tentativa.
 
-### Limites e decisões ainda pendentes
+### Regras definidas e decisões ainda pendentes
 
 - Acessos externos não instrumentados ficam fora do protocolo; não há isolamento
   forte em relação a eles nem alteração das regras C/C++ de corrida de dados.
 - Escritas em objetos cuja vida começou antes da transação exigem registro
   prévio. A forma sem lista não autoriza incluir implicitamente todos os objetos.
-- A política para leituras externas não listadas continua pendente. Não assumir
-  consistência dessas leituras ou registro automático.
-- O subconjunto previsto começa por escalares e agregados admitidos de tamanho
-  conhecido; exige decisões verificáveis para tipos C++ e casos especiais.
-  VLA, volatile, atômicos e operações não triviais não têm suporte implícito.
+- Decisão atual: todos os acessos preexistentes exigem registro explícito,
+  inclusive leituras; substitui a permissão anterior de leituras externas comuns.
+  Sem fallback; INVALID em contexto válido exige limpeza segura e fatal, sem retry.
+- Decisão: escalares, arrays e agregados restritos, completos e de tamanho
+  conhecido, com validação recursiva. Excluir volatile, atômicos, VLA, unions,
+  bit-fields, membros flexíveis e casos sem contrato; proibir escritas const.
+  Instâncias de classes ficam para trabalho futuro, incluindo struct C++.
+- Decisão: vetor[i] admite índice dinâmico com vetor canônico conhecido e limites
+  em execução; ponteiros sem identidade conhecida são rejeitados. Campos e
+  elementos usam a entrada do agregado registrado e offsets. Proibir registros
+  distintos sobrepostos; repetição do mesmo objeto/mesma extensão é deduplicação.
+  A hash não verifica intervalos: aplicação e diagnósticos ainda são trabalho
+  de integração, não garantias executadas pelo código atual.
+- Decisão: escalares privados simples; agregados com faixas válidas/modificadas,
+  sem exigir inicialização/acesso integral para operar sobre um campo. Commit
+  publica apenas faixas modificadas; descarte não publica. Buffers são internos:
+  &x preserva o endereço lógico original. A unidade de conflito é o objeto.
 - Restringir E/S, efeitos externos não descartáveis, chamadas desconhecidas,
   criação/suspensão de tasks e sincronizações internas não suportadas. Não
   prometer rollback de efeitos externos ou execução exatamente uma vez.
-- Propagação segura de falha entre funções, identificação de versões preparadas,
-  exceções, acessos por cleanups e ABI de ponte de acesso precisam ser definidos.
+- Decisão: versões internas transacionais com contexto/status explícitos,
+  resultado só em sucesso e assinatura pública preservada. Falha segue aos
+  epílogos até o controle externo; chamadas indiretas/externas sem preparação
+  são restritas e pure/const não substitui preparação.
+- Decisão: rejeitar inicialmente exceções e cleanups do usuário. A limpeza
+  interna é obrigatória; tentativa condenada recusa read/write normais. Suporte
+  futuro precisa de protocolo para acesso de destrutores aos dados condenados.
+  Exceção nunca vira CONFLICT nem provoca commit durante desenrolamento.
+- Geração/identificação/linkage/ABI das versões, diagnósticos dessas restrições
+  e ABI de ponte de acesso ainda precisam de especificação e implementação.
   O finally atual de rastreamento não pode virar commit automático.
 
 ## Percurso técnico e ponto de instrumentação
@@ -279,10 +453,10 @@ não devem ser exportados apenas para suprir a instrumentação ou testes.
 
 | Arquivo | Conteúdo relacionado ao projeto |
 | --- | --- |
-| [libgomp/newtm-hash.h](libgomp/newtm-hash.h) | Tipos opacos, enum de estados, capacidade padrão, callbacks e nove primitivas internas da hash. |
-| [libgomp/newtm-hash.c](libgomp/newtm-hash.c) | Estruturas de tabela/bucket/entrada e corpos de depuração; também hospeda provisoriamente a ponte GOMP_transaction_* e seu contexto de rastreamento. |
+| [libgomp/newtm-hash.h](libgomp/newtm-hash.h) | Tipos opacos, estados, callbacks e nove primitivas da hash; lease e três serviços internos de admissão/encerramento, sem exportação GOMP nova. |
+| [libgomp/newtm-hash.c](libgomp/newtm-hash.c) | Nove primitivas operacionais, mistura, buckets/referências/metadados, três serviços owner e ponte GOMP com lease por contexto externo; logs fora dos locks. |
 | [libgomp/newtm-transaction.h](libgomp/newtm-transaction.h) | Contexto opaco, enums de resultado de acesso/ciclo de vida, enum de estados da tentativa e oito declarações ocultas (read/write e seis operações de ciclo de vida), com contratos futuros. |
-| [libgomp/newtm-transaction.c](libgomp/newtm-transaction.c) | Oito esqueletos que imprimem parâmetros, fazem fflush e retornam INVALID; begin também inicializa outermost=false. |
+| [libgomp/newtm-transaction.c](libgomp/newtm-transaction.c) | Criação, aninhamento, condenação e limpeza; end interno funcional, end externo indisponível; register/read/write/backoff ainda stubs. |
 | [libgomp/libgomp.h](libgomp/libgomp.h) | Campo newtm_transaction_context no estado da thread e infraestrutura interna utilizada. |
 | [libgomp/team.c](libgomp/team.c) | Inicialização do ponteiro de contexto no ciclo de vida da thread. |
 | [libgomp/libgomp_g.h](libgomp/libgomp_g.h) | Protótipos da ponte GOMP_transaction_* atual. |
@@ -320,14 +494,22 @@ significa que tenham recebido implementação específica de transaction:
 | gcc/testsuite/g++.dg/gomp/transaction-log-*.C | Referências/templates e captura em lambda. |
 | [gcc/testsuite/g++.dg/gomp/transaction-lookup-1.C](gcc/testsuite/g++.dg/gomp/transaction-lookup-1.C) | Acesso privado e ambiguidade C++. |
 | [libgomp/testsuite/libgomp.c-c++-common/transaction-log-1.c](libgomp/testsuite/libgomp.c-c++-common/transaction-log-1.c) | Execução da ponte, duplicatas e liberação somente na saída externa. |
-| [transaction_test/transaction_exemplo.c](transaction_test/transaction_exemplo.c) | Máximo paralelo com referência sequencial e empate; usa critical externo para sincronização real. |
-| [transaction_test/transaction_aninhamento.c](transaction_test/transaction_aninhamento.c) | Aninhamento lexical/por função, lista interna e duplicatas, sem concorrência. |
-| [transaction_test/verificar.py](transaction_test/verificar.py) | Asserções sobre resultados, contagens e ordem dos logs da ponte. |
-| [transaction_test/lifecycle_stubs.c](transaction_test/lifecycle_stubs.c) | Contratos dos seis stubs de ciclo de vida, com slots, canários e limites. |
-| [transaction_test/verificar_lifecycle.py](transaction_test/verificar_lifecycle.py) | Logs e símbolos internos, ligado ao archive do build pelo alvo check-lifecycle. |
-| [transaction_test/Makefile](transaction_test/Makefile) | Compilação com GCC e libgomp do build local; alvo check. |
-| [transaction_test/README.md](transaction_test/README.md) | Comandos, cobertura e limites dos exemplos. |
-| [transaction_test/.gitignore](transaction_test/.gitignore) | Exclusão dos executáveis/logs locais de .build. |
+| [transaction_test/transaction_exemplo.c](../transaction_test/transaction_exemplo.c) | Máximo paralelo com referência sequencial e empate; usa critical externo para sincronização real. |
+| [transaction_test/transaction_aninhamento.c](../transaction_test/transaction_aninhamento.c) | Aninhamento lexical/por função, lista interna e duplicatas, sem concorrência. |
+| [transaction_test/verificar.py](../transaction_test/verificar.py) | Asserções sobre resultados, contagens e ordem dos logs da ponte. |
+| [transaction_test/lifecycle_stubs.c](../transaction_test/lifecycle_stubs.c) | Contratos dos seis stubs de ciclo de vida, com slots, canários e limites. |
+| [transaction_test/verificar_lifecycle.py](../transaction_test/verificar_lifecycle.py) | Logs e símbolos internos, ligado ao archive do build pelo alvo check-lifecycle. |
+| [transaction_test/hash_create_destroy.c](../transaction_test/hash_create_destroy.c) | Estrutura, mutexes e preservação em BUSY. |
+| [transaction_test/hash_acquire.c](../transaction_test/hash_acquire.c) | Inserção/consulta, referências, overflow, colisões e concorrência. |
+| [transaction_test/hash_entry.c](../transaction_test/hash_entry.c) | Consultas imutáveis, callbacks, substituição de metadados e exclusão por bucket. |
+| [transaction_test/hash_count.c](../transaction_test/hash_count.c) | Contagem distinta de referências, saturação e zero com destrutor ainda pendente. |
+| [transaction_test/hash_diagnostics.c](../transaction_test/hash_diagnostics.c) e [verificador](../transaction_test/verificar_hash_diagnostics.py) | Quatro processos de regressão para inversão de locks com stdout/stderr e OOM injetado. |
+| [transaction_test/hash_owner.c](../transaction_test/hash_owner.c) e [verificador](../transaction_test/verificar_hash_owner.py) | Onze cenários de admissão/encerramento, coordenador único, callbacks e logs pendentes, chamadas tardias e saída com contexto ativo. |
+| [transaction_test/transaction_carga.c](../transaction_test/transaction_carga.c) | THREADS W:R REPETICOES; uma operação lógica por transação e repetição por thread; critical interno enquanto não há isolamento. |
+| [transaction_test/verificar_carga.py](../transaction_test/verificar_carga.py) | 1:9/1:1/9:1, contagens/resultados e uma acquire/release por transação, sem depender de assert Python. |
+| [transaction_test/Makefile](../transaction_test/Makefile) | Build local; check inclui check-carga; alvos privados hash, diagnósticos, owner e lifecycle separados. |
+| [transaction_test/README.md](../transaction_test/README.md) | Comandos, cobertura e limites dos exemplos. |
+| [transaction_test/.gitignore](../transaction_test/.gitignore) | Exclusão dos executáveis/logs locais de .build. |
 
 transaction_test/a.out é artefato antigo, não fonte nem evidência de execução da
 versão atual. Os agentes listados no início também integram a documentação do
@@ -352,10 +534,22 @@ não testes permanentes ou dependências da distribuição.
 - Chamadas GOMP_transaction_begin/register/end e ponte de rastreamento com
   profundidade por thread, deduplicação por endereço e retenção até a saída externa.
 - Inicialização global de rastreamento e chamadas create/acquire/release/destroy.
-  Os handles continuam nulos porque as operações hash ainda são stubs; a ponte
-  ignora suas falhas deliberadamente apenas nesta etapa.
-- Nove primitivas hash definidas como esqueletos. Funções de estado imprimem
-  argumentos e retornam INVALID; saídas ficam nulas e consultas retornam null/zero.
+  A ponte usa tabela e entradas reais, verifica os retornos antes de publicar
+  estado ou registros. O proprietário agora controla OPEN/CLOSING/CLOSED e
+  participações: cada contexto externo retém uma lease até concluir a limpeza.
+  Fechamento recusa novos usuários e só destrói depois da drenagem, com um
+  coordenador. O finalizador faz tentativa sem esperar; BUSY conserva recursos
+  para o processo, sem fatal ou remoção forçada. Controle/mutex sobrevivem à tabela.
+  A inicialização usa helper sem E/S sob lock global e emite create depois de
+  unlock. Falhas de alocação são fatais somente após liberar o lock pertinente.
+- Nove primitivas hash declaradas e operacionais.
+  create/destroy gerenciam tabela/mutexes; acquire/lookup_acquire usam fmix32/64,
+  busca sob mutex e referências, com validação de tamanho/overflow; release
+  retira na última referência e destrói metadados fora do lock. Address/size
+  consultam campos imutáveis sem lock com referência retida; visit executa
+  callback sob mutex do bucket sem consumir a referência. Count adquire todos
+  os mutexes em ordem crescente, soma entradas com saturação e desbloqueia em
+  ordem inversa; zero não comprova quiescência. Printf/fflush fora dos mutexes.
 - Esqueletos newtm_read/write internos, incluídos no build da libgomp. Imprimem os
   cinco parâmetros, fazem fflush(stdout) e retornam NEWTM_ACCESS_INVALID. Não
   desreferenciam parâmetros, modificam contexto/buffers ou validam acessos.
@@ -370,14 +564,15 @@ não testes permanentes ou dependências da distribuição.
 
 ### Ainda não implementado ou não consolidado
 
-Não há tabela hash operacional, protocolo real de reservas, visão privada dos
+Há criação/destruição, aquisição/consulta com retenção e liberação de entradas,
+consultas address/size, visita sincronizada de metadados e contagem consistente
+saturada. Não há protocolo real de reservas, visão privada dos
 dados, instrumentação automática de leitura/escrita, commit, abort funcional,
-rollback ou reinício de tentativas. O compilador e a ponte de rastreamento não
-chamam newtm_read/write nem os seis stubs de ciclo de vida. Não existe ponte exportada de acesso nem sua ABI final.
+rollback ou reinício de tentativas. O compilador não gera acessos STM. A ponte usa begin/end interno/discard, mas
+não chama newtm_read/write ou registro STM. Não existe ponte exportada de acesso nem sua ABI final.
 
-O contexto opaco das primitivas de acesso ainda não é uma implementação do
-contexto funcional. O contexto de rastreamento em newtm-hash.c é provisório e
-não armazena valores especulativos. O corpo continua lendo/escrevendo memória
+O contexto privado já implementa criação e limpeza; a ponte de rastreamento em
+newtm-hash.c o utiliza sem armazenar valores especulativos. O corpo continua lendo/escrevendo memória
 comum. Portanto transaction ainda não protege atualizações concorrentes.
 
 O TRY_FINALLY atual equilibra encerramento/limpeza de rastreamento, inclusive em
@@ -386,6 +581,18 @@ A matriz futura de restrições de tipos, efeitos externos, aliases, tasks e
 exceções ainda não é integralmente validada pelo código atual.
 
 ### Validação registrada e seus limites
+
+A etapa de hash/owner executou build PIC/não PIC e testes privados, regressões,
+ASan/UBSan e ThreadSanitizer conforme o relatório de implementação. Na etapa da
+carga, make check passou com -O2 -Wall -Wextra -Werror e 4 threads/1000 repetições:
+1:9 produziu 400 escritas/3600 leituras; 1:1, 2000/2000; 9:1, 3600/400. Passaram
+também contagens não múltiplas do período, relações 0:1/1:0, limites de pesos,
+19 entradas inválidas e detecção de equipe limitada pelo ambiente. Esses testes
+usam critical e não validam isolamento STM. Os detalhes e comandos estão em
+[IMPLEMENTATION](OPENMP_TRANSACTION_IMPLEMENTATION.md) e
+[README dos testes](../transaction_test/README.md).
+
+Os parágrafos seguintes registram etapas anteriores, com seus próprios limites:
 
 O relatório de implementação registra builds e subconjuntos DejaGNU anteriores,
 além de testes diretos. A etapa dos esqueletos read/write reconstruiu libgomp com
@@ -400,26 +607,50 @@ etapa. Reproduzir os testes pertinentes na próxima alteração.
 
 Na etapa seguinte, a definição da máquina acrescentou o enum de cinco estados
 e o protocolo de consumo único em ABORT, sem implementar contexto ou transições.
-A libgomp foi reconstruída; check-lifecycle passou com 24 chamadas, incluindo
+A libgomp foi reconstruída; check-lifecycle passou com 26 chamadas, incluindo
 descarte repetido e saída posterior sem sucesso fictício. Os exemplos passaram
 com 1/2/4 threads e aninhamento; não houve nova execução DejaGNU nessa etapa.
 
 ## Orientação para as próximas etapas
 
-Antes de passar de esqueletos a operações reais, delimitar a tarefa autorizada
-e suas dependências. Manter o contrato explícito de erro e atualizar os chamadores
-quando a hash começar a produzir entradas válidas; não carregar para o runtime
-funcional a aceitação provisória de handles nulos.
+### Entregas concluídas, não repetir como pendência
 
-A integração de acessos exige preservar identidade, instrumentar exatamente uma
-vez e manter semântica de avaliação C/C++. A integração de abort exige caminho
-seguro de falha entre funções e cleanups. A entrega funcional depende também de
-publicação/descarte e testes determinísticos de concorrência, não apenas de
-printfs ou de uma execução que produza o resultado esperado.
+A hash estrutural (nove primitivas), integração da ponte com referências reais,
+correção dos dois caminhos de diagnóstico e admissão/participações do proprietário
+já estão implementadas. OPEN/CLOSING/CLOSED governa a vida útil da tabela, não a
+máquina de estados da tentativa STM. Count zero continua sem provar quiescência.
+A carga parametrizada e seus três cenários também já integram make check.
 
-Atualizar este panorama, os contratos especializados e a documentação do usuário
-quando o comportamento mudar. Conservar a distinção entre intenção, contrato
-proposto, implementação efetiva e evidência de validação.
+### Trabalho funcional ainda pendente e dependências
+
+A sequência abaixo organiza dependências para a próxima tarefa autorizada;
+não declara funcionalidades entregues nem cria uma nova ABI por si só.
+
+| Ordem | Tarefa | Dependências e critério de integração |
+| --- | --- | --- |
+| 1 | Integrar registro/deduplicação à base de contexto já implementada; detalhar a ABI das versões geradas. | Leituras externas, tipos, identidade, chamadas com contexto/status e rejeição inicial de exceções/cleanups já foram decididos. Classes e suporte a cleanups do usuário ficam para futuro. |
+| 2 | Estender a base funcional do contexto com registro STM e metadados sob demanda. | Distinguir lease do proprietário, referência física, participação semântica, reserva e buffer privado. Preservar a lease enquanto qualquer tentativa/cleanup depender da tabela; definir transições/falhas e o destrutor de política antes da publicação (o owner já usa newtm_policy_destroy) antes de ligar os stubs. |
+| 3 | Implementar metadados da política, reservas e operações read/write com escalares simples, faixas válidas/modificadas para agregados e limites de subacessos. | Depende de contexto e propagação segura. Usar entry_visit com callback curto e sem reentrada/espera; não conservar mutex entre acessos. Não tratar INVALID dos stubs como sucesso ou conflito. |
+| 4 | Preservar identidade e instrumentar cada acesso C/C++ no ponto adequado do pipeline. | Especificar ABI e gerar versões internas com contexto/status explícitos, resultado só em OK e epílogos encadeados, preservando assinatura pública; aplicar filtros recursivos, rejeição de ponteiros desconhecidos e registros distintos sobrepostos, e limites dinâmicos. Exigir registro explícito para todos os acessos preexistentes, sem fallback. Preservar private/reduction, referências, templates e avaliação única; GIMPLE atual guarda corpo. |
+| 5 | Completar saída externa, publicação, descarte, propagação da falha, espera e retry. | Integração coordenada com etapas anteriores: end falho preserva recursos, discard explícito após cleanups e retry somente de conflito externo. Publicar somente faixas modificadas; liberar a representação privada no descarte. Não retornar OK de commit/descarte sem efeitos concluídos. |
+| 6 | Validar STM funcional no subconjunto admitido. | Testes de conflitos, valores privados, publicação/aborto, aninhamento, progresso e decisões de tipos/identidade. Reavaliar o critical da carga somente depois do isolamento implementado; logs atuais não provam STM. |
+| Futuro | Suporte transacional a instâncias de classes. | Definir critérios de linguagem, construção/cópia/destruição, vida útil e exceções antes de ampliar o conjunto; não admitir por mera trivialidade ou sizeof conhecido. |
+| Futuro | Exceções e cleanups do usuário. | Definir visão/acesso de destrutores com tentativa condenada, ordem e falhas de cleanup, vida útil e propagação da exceção; não usar read/write normais, converter em CONFLICT ou confirmar durante desenrolamento. |
+
+As etapas têm dependências mútuas: não ativar acessos ou publicação parcialmente
+sem um caminho seguro de falha e limpeza. Atualizar algoritmos em comentário,
+contratos especializados, inventário e documentação quando o comportamento mudar.
+
+### Validação e otimizações ainda abertas
+
+- Reproduzir os subconjuntos DejaGNU com a libgomp correta quando o ambiente
+  tiver as ferramentas; os 383 PASS de 2026-10-21 não validam o código posterior.
+- Executar nativamente 32 bits e targets/backends alternativos antes de anunciar
+  cobertura que não foi obtida no Linux x86_64 atual.
+- Medir contenção e separar custos dos printf e do critical da carga antes de
+  otimizar alocação sob lock ou distribuição. Manter os logs exigidos pelo usuário.
+- Não prometer unload seguro: dlclose requer exclusão externa de código atual e
+  futuro. O finalizador já evita esperar/forçar destruição com leases ativas.
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -429,12 +660,19 @@ e futuros e pontos de chamada. Os contratos especializados deste agente
 permanecem detalhados aqui; mudanças de interface devem atualizar também o
 inventário. Os nomes stm_* continuam conceituais, sem assinatura C ou ABI definida.
 
-A sequência solicitada prioriza contratos e esqueletos antes das operações reais.
-Os seis esqueletos internos de ciclo de vida já foram acrescentados; contratos,
-classificação e evidências estão no inventário e no relatório de implementação.
-A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
-Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
-`/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
+Estado consolidado em 2026-10-28: as nove primitivas da hash, a ponte com
+referências reais e o controle de admissão/participações OPEN/CLOSING/CLOSED
+estão implementados. Os testes permanentes incluem estrutura, concorrência,
+metadados, contagem, diagnósticos, encerramento e carga parametrizada 1:9/1:1/9:1.
+Não listar novamente a implementação da hash ou seu shutdown como tarefas futuras.
+Read/write e os seis serviços de ciclo de vida da tentativa continuam esqueletos;
+reservas, dados privados, instrumentação de acessos, propagação segura, commit,
+descarte e retry funcionais continuam pendentes. A ordem de integração está em
+[próximas etapas](OPENMP_TRANSACTION_PROJECT_AGENT.md#orientação-para-as-próximas-etapas).
+Não confundir participação do proprietário com reserva/estado de tentativa STM.
+Fontes: `gcc-src-tm/`; build: `gcc-build/`; testes: `transaction_test/`, na raiz do
+repositório. No contêiner atual, a raiz é `/usr/src/gcc-tm`. Caminhos antigos em
+relatos datados são históricos; adaptar comandos à cópia em uso.
 
 ## Verificação geral de 2026-10-21
 

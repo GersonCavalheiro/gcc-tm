@@ -1,3 +1,423 @@
+## Checkpoint contexto_pronto_para_registro — 2026-10-28
+
+Criado teste agregador com cabeçalho de cobertura e limites, alvo
+check-checkpoint-contexto no Makefile e documentação de execução. Reúne oito
+alvos existentes, recompila testes contra o build selecionado, guarda logs e
+relatório JSON e interrompe em falha/timeout, encerrando o grupo de processos.
+Não implementa novas operações STM ou testes para as lacunas já identificadas.
+Validação: os oito alvos passaram no contêiner gcc-tm com -O2 -Wall -Werror;
+falha simulada confirmou parada imediata e relatório reprovado.
+
+## Base do contexto implementada — 2026-10-28
+
+Criado newtm-context.h com contexto, registros, intervalos e política aceitos;
+acrescentados owning_slot e owner para consumo canônico e execução proprietária.
+Begin agora recebe lease*, inicializa privadamente e transfere antes de publicar;
+nesting preserva a lease. Fail registra INVALID dominante; discard desliga slot,
+retira reservas sob bucket e libera buffers/intervalos/referências/contexto fora
+dele, com owner_release por último. End só conclui saída interna; saída externa
+condena com INVALID, pois publicação ainda não existe. Algoritmos documentados
+nos cabeçalhos dos corpos e nos contratos. Mantidos printf/fflush fora dos locks.
+
+Owner configura newtm_policy_destroy antes da publicação. Ponte trace mantém
+sua lista legada e usa contexto real para entrada/limpeza, sem inferir kind ou
+anunciar isolamento STM. Erros permanentes detectados pela ponte com contexto
+válido drenam seus recursos antes de fatal. Registro/read/write/backoff e
+publicação STM continuam pendentes; nenhuma ABI pública GOMP alterada.
+
+Validação no contêiner: libgomp -Wall -Werror; check-lifecycle com
+-O2 -Wall -Wextra -Werror; owner (11 processos), diagnósticos (4), exemplos
+1/2/4 threads, aninhamento e carga 1:9/1:1/9:1 passaram. ASan/UBSan passaram com
+fontes de contexto/hash instrumentadas e archive estático restante. Testes
+privados com -Wextra -Werror encontraram avisos preexistentes em cabeçalhos GCC;
+rodaram com -Wall -Werror, como a libgomp. Sem nova execução DejaGNU.
+
+## Lease e destrutor: procedimentos aceitos — 2026-10-28
+
+Aceita a transferência exclusiva da lease da ponte ao contexto externo,
+preservada no aninhamento e liberada após toda a limpeza. Aceito o destrutor
+interno configurado antes da publicação da tabela, metadados sob demanda com
+candidato preparado fora do bucket e destruição na última referência fora do
+mutex. Exigir leitores/escritor vazios; participação residual é erro interno
+fatal, sem remoção forçada. O destrutor libera somente metadados compartilhados.
+
+Contratos e especificação sincronizados; implementação ainda pendente. Nenhum
+código executável alterado nesta atualização documental.
+
+## Classificação no registro e aceitação do contexto — 2026-10-28
+
+Aceita a estrutura inicial de OPENMP_TRANSACTION_CONTEXT_PROPOSAL.md, ainda por
+implementar. Adicionado enum newtm_object_kind e quarto argumento kind em
+newtm_register; comentários definem classificação canônica, arrays/agregados,
+ponteiros, compatibilidade de repetição e INVALID para tags desconhecidas no
+contrato funcional. Mantidos printf/fflush, com kind numérico no log. O stub
+continua sem inspecionar argumentos/contexto, sempre INVALID. Nenhuma nova
+cláusula, ABI pública GOMP ou chamada gerada pelo compilador foi introduzida.
+
+Adaptados teste e verificador de lifecycle para ambas as classes e tag inválida.
+No contêiner gcc-tm: libgomp recompilada com -Wall -Werror; check-lifecycle passou
+com -O2 -Wall -Wextra -Werror, 26 chamadas, canários preservados e símbolos
+internos presentes no archive e ausentes da API dinâmica.
+
+## Organização do contexto escolhida — 2026-10-28
+
+Escolhida lista de registros por tentativa, com registros estáveis e busca linear
+inicial; aninhamentos usam o mesmo contexto. Mantidas as recomendações de
+escalares simples, buffer de extensão completa sob demanda para agregados e
+listas de intervalos válidos/modificados. Alocação completa não exige leitura ou
+inicialização integral. Separar registros privados dos metadados compartilhados
+da entrada hash. Campos concretos e algoritmos de intervalos ainda pendem.
+Somente documentação; nenhuma implementação ou teste executável alterado.
+
+## Fechamento semântico antes do layout do contexto — 2026-10-28
+
+Registradas as decisões atuais: INVALID em contexto válido exige limpeza segura
+seguida de diagnóstico fatal, sem retry, nova cláusula ou resultado na linguagem;
+OOM permanece fatal. Excluir E/S, chamadas de sistema, locks do usuário e
+malloc/free do programa; alocação futura exigirá rastreamento e descarte ou
+liberação adiada. Temporários automáticos privados são recriados no retry e não
+escapam. Registro explícito para todos os acessos preexistentes substitui a
+permissão anterior de leituras externas comuns. O critical da carga é apoio ao
+rastreamento e será reavaliado para testes de isolamento STM real.
+
+Conjunto semântico fechado para definir layout do contexto. Atualização somente
+documental; filtros, diagnósticos e protocolo funcional não foram implementados.
+As notas anteriores preservam o histórico das decisões então vigentes.
+
+## Decisão semântica: representação privada — 2026-10-28
+
+Escalares usam representação simples. Agregados usam armazenamento privado com
+faixas válidas/modificadas; modificadas são válidas. Acesso a um campo não exige
+inicializar ou acessar todo o objeto. Leituras completam partes ausentes sob
+reserva e preservam escritas da tentativa; commit publica somente modificadas,
+descarte não publica. A unidade de conflito continua o objeto canônico.
+Buffers permanecem internos: &x preserva o endereço lógico original.
+
+Contratos e roteiro sincronizados. Layout das faixas e implementação funcional
+continuam pendentes. Somente documentação; nenhum código executável alterado.
+
+## Decisão semântica: exceções e cleanups do usuário — 2026-10-28
+
+O usuário definiu rejeição inicial de exceções e cleanups do usuário, inclusive
+nas funções preparadas. A limpeza interna do runtime permanece obrigatória,
+incluindo destrutores internos de metadados, referências, buffers/contexto e
+leases. Tentativas condenadas recusam novos acessos normais por read/write;
+essas primitivas não podem ser relaxadas para executar destrutores do usuário.
+Exceções nunca são CONFLICT, não autorizam retry e não provocam commit durante
+desenrolamento. Finally de rastreamento não constitui confirmação STM.
+
+Suporte futuro deverá definir a visão e o protocolo de acesso de destrutores
+com tentativa condenada, ordem/vida útil de recursos, falhas no cleanup e
+propagação da exceção original. Referências genéricas a desenrolamento suportado
+nos agentes passam a designar essa extensão futura. Testes C++ anteriores de
+rastreamento continuam históricos e não comprovam suporte STM a esses casos.
+
+Sincronizados contratos e roteiros em HASH/ACCESS/SCOPE/ABORT, panorama,
+inventário e guia de implementação. Somente documentação: nenhum diagnóstico
+novo foi implementado no compilador, nenhum código executável mudou e não
+houve build/testes nesta rodada.
+
+## Decisão semântica: chamadas preparadas e status explícito — 2026-10-28
+
+O usuário escolheu gerar versões transacionais internas das funções, recebendo
+contexto e retornando status explícito, com resultado preenchido somente em
+sucesso. O chamador verifica status antes de consumir resultado ou continuar;
+falha segue ao epílogo e é propagada pela cadeia até o controle externo, sem
+valores fictícios. A assinatura pública original permanece intacta. Contexto,
+flat nesting e lease são preservados enquanto houver referências/cleanups;
+funções internas não confirmam nem descartam a tentativa externa por conta própria.
+
+Chamadas indiretas ou externas sem preparação ficam inicialmente restritas.
+Pure/const não prova que a visão privada é observada e não autoriza usar versão
+comum. Exceções/cleanups têm decisões próprias, sem conversão automática em
+CONFLICT. A ABI das versões geradas, enum/traduções de status, nomes/linkage,
+retornos por referência e sua geração ainda precisam de especificação técnica
+e implementação. O pseudocódigo nos agentes é conceitual; nenhum símbolo GOMP,
+clone, builtin ou transformação de chamadas foi criado nesta rodada documental.
+
+Sincronizados HASH/ACCESS/SCOPE/ABORT, panorama, roteiro e inventário. Mantidas
+as decisões anteriores de leituras externas comuns, tipos iniciais e identidade.
+Não houve alteração de código executável, build ou testes nesta atualização.
+
+## Decisões semânticas: leituras externas, tipos e identidade — 2026-10-28
+
+Registradas decisões explícitas do usuário nos agentes HASH/ACCESS/SCOPE/ABORT,
+no panorama, inventário e roteiro de implementação:
+
+- Somente os objetos listados e já registrados participam do protocolo. Em
+  transaction(a) { a += b; }, a é transacional e b é lido normalmente, sem
+  registro, reserva, validação ou conflito STM. Retry pode observar outro b;
+  regras normais de corrida de dados continuam aplicáveis. Escritas externas
+  não listadas mantêm sua restrição separada.
+- Escalares, arrays e agregados restritos de tamanho conhecido, com validação
+  recursiva. Excluir volatile, atômicos, VLA, unions, bit-fields, membros flexíveis
+  e casos sem contrato; proibir escritas const. Instâncias de classes ficam
+  para futuro; em C++, struct também é tipo de classe, sem admissão automática
+  por trivialidade.
+- Identidade canônica conhecida permite vetor[i] dinâmico com limites em
+  execução. Rejeitar ponteiros sem identidade, sem fallback comum, e registros
+  distintos sobrepostos (inclusive entre contextos). Campos/elementos de agregado
+  registrado usam sua entrada/offset; repetir mesmo objeto/mesma extensão não
+  cria registro distinto. Ponteiro listado não registra a memória apontada.
+
+O compilador deve classificar leituras comuns antes de selecionar newtm_read;
+INVALID nessa primitiva não autoriza fallback. A hash atual continua exata e
+não detecta intervalos/sobreposição. Aplicação dos filtros, mapeamento e seus
+diagnósticos são tarefas futuras de integração, não mudanças executáveis desta
+atualização. Decisões de chamadas/falhas, exceções/cleanups, representação privada
+e efeitos externos permanecem abertas. Esta rodada alterou apenas documentação,
+sem build ou testes de execução; não declara novas garantias no compilador.
+
+## Carga parametrizada e atualização dos roteiros — 2026-10-28
+
+Adicionados transaction_test/transaction_carga.c e verificar_carga.py. O programa
+recebe THREADS ESCRITAS:LEITURAS REPETICOES; cada thread executa N regiões
+transaction e floor(N*W/(W+R)) escritas lógicas, intercaladas por acumulador sem
+overflow. Uma escrita é read-modify-write. Verifica valor/complemento, contagens
+e equipe efetivamente lançada; rejeita pesos/somas fora de uint32_t, entradas
+inválidas e total fora de unsigned long long. Critical interno protege os dados,
+mas registro/liberação dos objetos podem concorrer. Não comprova STM funcional.
+
+Makefile inclui check-carga em check, com defaults 4 threads/1000 repetições e
+cenários 1:9,1:1,9:1; CARGA_THREADS/CARGA_REPETICOES são configuráveis. O verificador
+usa checagens explícitas Python, timeout de 60 segundos por cenário e confere
+uma acquire/release por transação e create/destroy únicos. Logs permanentes de
+execução ficam em transaction_test/.build/transaction_carga-*.log (ignorados pelo
+Git); arquivos .c/.py e regras do Makefile são os testes reproduzíveis.
+
+Na entrega do teste passaram make check com -O2 -Wall -Wextra -Werror, valores
+400/3600,2000/2000,3600/400 de escritas/leituras, oito combinações adicionais
+(incluindo 0:1/1:0, pesos extremos e períodos incompletos), 19 entradas inválidas
+e recusa explícita de equipe reduzida por OMP_THREAD_LIMIT. Evidências locais:
+/tmp/newtm-carga-check.log, /tmp/newtm-carga-boundaries.log no contêiner, e
+transaction_test/.build/carga-audit/check.py para os casos exploratórios.
+
+Esta revisão dos agentes é documental: não reexecutou compilação/testes.
+Roteiros agora separam hash/owner/carga entregues de contexto, reservas, acessos,
+propagação de falha, publicação/descarte e retry pendentes. Auditoria DejaGNU
+2026-10-21 e resultados das demais etapas abaixo permanecem históricos.
+
+## Controle de admissão e encerramento da camada proprietária — 2026-10-28
+
+Acrescentados três serviços internos ocultos em newtm-hash.c/.h, sem nova ABI
+GOMP: owner_acquire, owner_release e owner_close, usando newtm_hash_owner_lease.
+São serviços do proprietário, não novas primitivas da tabela. Estado
+OPEN/CLOSING/CLOSED, contagem de participações, ponteiro e coordenador ficam sob
+mutex global estático. O mutex permanece vivo depois da tabela para rejeitar
+admissões tardias. Não há reinicialização automática após CLOSED.
+
+Admissão e registro da participação são indivisíveis em relação ao fechamento.
+A participação cobre inclusive o log create fora do mutex. GOMP begin externo
+admite uma lease antes de expor tabela/contexto; aninhamentos reutilizam-na em
+CLOSING. Register/end usam o ponteiro da lease. A saída externa libera todas as
+entradas/metadados, limpa TLS, transfere a participação para armazenamento local,
+libera contexto e só então devolve a lease. Consumidores diretos da tabela global
+precisam de participação durante todo uso/referências; nunca destruir tabela
+emprestada. Tabelas independentes preservam quiescência externa própria.
+
+Owner_close fecha admissão e não espera usuários: retorna BUSY se ainda há
+participações, coordenador em andamento ou entradas residuais, preservando
+CLOSING/tabela. Um único coordenador chama destroy fora do mutex, somente após
+zero participações, e publica CLOSED/ponteiro NULL após OK. Repetição CLOSED é
+OK sem dupla liberação. BUSY não força remoção nem reabre admissão; coordenador
+pode concluir/join de usuários e repetir. Não é lock-free: pode aguardar o mutex
+curto de controle, mas não espera drenagem ou faz polling interno.
+
+O finalizador automático apenas tenta owner_close: com usuários, não espera,
+não chama fatal recursivamente nem destrói tabela/mutex em uso. Mantém recursos
+para recuperação pelo processo; explicit close pode concluir após término dos
+usuários se a execução continuar. O protocolo não protege código removido por
+dlclose; exige impedir externamente qualquer execução atual/futura da biblioteca.
+Os nove serviços de tabela mantêm seus printf fora dos locks e contratos locais.
+
+Teste permanente: make -C transaction_test -B check-hash-owner. Onze casos em
+processos separados, timeout de 15 segundos, configuração privada Linux x86_64:
+fechamento sem uso; aninhamento e drenagem; coordenadores concorrentes com stdout
+bloqueado fora do mutex; destrutor pendente; log inicial pendente já coberto por
+participação; entradas residuais por injeção quiescente; corrida de admissão com
+oito threads; erros e overflow restaurado; begin tardio fatal; saída real com
+contexto ativo sem destruição; finalizador solicitado com contexto ativo que
+posteriormente conclui a limpeza. Nenhum hook de produção ou exportação nova.
+
+No contêiner gcc-tm passaram rebuild PIC/não PIC com -Wall -Werror, onze casos
+owner, diagnósticos, quatro testes da hash, exemplos com 1/2/4 threads/aninhamento
+e 24 chamadas lifecycle. Owner e diagnósticos passaram com ASan/UBSan; onze casos
+owner passaram com ThreadSanitizer incluindo os caminhos lentos dos mutexes.
+Readelf confirmou os três serviços owner como GLOBAL HIDDEN; nm confirmou a
+ABI GOMP_NEWTM_1.0 sem exportar novos serviços. A sonda C++ com template,
+referência, exceção e outra região após catch passou, incluindo destroy final
+após devolver as participações; fonte/log locais em transaction_test/.build.
+DejaGNU permanece indisponível; não foi executada suíte completa nem dlclose.
+Relatos anteriores sobre finalização e protocolo pendente são históricos.
+
+## Diagnósticos fora dos locks — 2026-10-28
+
+Corrigidos dois ciclos reproduzidos na revisão: inicialização com lock global
+esperando stdout enquanto outra thread dona do stream espera begin; e OOM de
+entrada com bucket retido esperando stderr enquanto a dona do stream adquire
+o mesmo bucket. Nenhum printf de depuração foi removido ou mudou de formato.
+
+Create compartilha helper não diagnóstico baseado em malloc/calloc. O helper
+valida por contrato capacidade positiva representável, limpa alocação parcial
+quando calloc falha, inicializa mutexes e retorna tabela completa ou NULL interno.
+O wrapper público preserva suas validações/status e converte NULL em fatal sem
+lock. Begin usa o helper sob lock global, publica só tabela completa, desbloqueia
+e só então imprime create ou diagnostica OOM. Acquire continua alocando sob o
+bucket, mas usa malloc e desbloqueia antes de gomp_fatal na falha, sem modificar
+lista, contadores ou out. Nenhum novo estado OOM recuperável ou ABI foi criado.
+Logs concorrentes podem aparecer em ordem diferente da publicação efetiva.
+
+Teste permanente: make -C transaction_test -B check-hash-diagnostics.
+Interposição de malloc/calloc/printf/gomp_fatal somente no teste white-box,
+com headers reais já incluídos antes das macros, sem hooks de produção. Cada
+caso executa em processo separado com timeout de 10 segundos. Cobre stdout
+bloqueado durante inicialização e stderr bloqueado durante OOM de entrada,
+tabela e buckets; verifica progresso de outra operação, estado não publicado
+parcialmente, logs e saída fatal 1 em OOM. Falta de memória é simulada somente
+na thread escolhida; não consome memória real excessiva.
+
+Validação no contêiner gcc-tm: build PIC/não PIC e todos os testes locais da
+hash, exemplos com 1/2/4 threads/aninhamento e check-lifecycle passaram com
+-O2 -Wall -Werror. Os quatro novos cenários passaram com AddressSanitizer e
+UndefinedBehaviorSanitizer (códigos próprios de falha para impedir falso sucesso
+em casos OOM). Aquisição, visitas e count passaram com ThreadSanitizer incluindo
+instrumentação dos caminhos lentos reais dos mutexes. Logs locais em
+/tmp/newtm-diagnostics-*.log e transaction_test/.build/hash_diagnostics-*.log.
+DejaGNU permanece indisponível; não foi executada a suíte completa.
+
+A finalização automática e sua exigência de quiescência externa não foram
+alteradas; este ajuste não resolve a questão de shutdown identificada na revisão.
+As seções anteriores sobre alocadores e sequência de logs são históricas.
+
+## Contagem consistente e saturada — 2026-10-28
+
+Implementada newtm_hash_count: printf/fflush de depuração antes dos locks,
+aquisição de todos os mutexes em ordem crescente, soma dos entry_count com
+verificação antes da adição e saturação em SIZE_MAX, desbloqueio de todos em
+ordem inversa, inclusive quando a soma satura antecipadamente. Conta entradas,
+não referências; nenhum estado é alterado. Requer tabela válida, sem destruição
+concorrente, fora de callbacks/destruidores e sem mutex de bucket já retido.
+Zero não estabelece quiescência e não autoriza destroy. As nove primitivas da
+hash agora são operacionais; isso não implementa reservas ou STM.
+
+Teste permanente: make -C transaction_test -B check-hash-count. Inclui o fonte
+real/configuração privada Linux x86_64, sem hooks/ABI novos. Verifica vazio,
+contagem distinta de referências, retenção/liberação, capacidades 1/3/1024 e
+colisões; injeta contadores somente no teste para atingir SIZE_MAX exato e
+saturação, restaura-os e verifica locks utilizáveis depois. Exercita quatro
+threads inserindo/retendo/liberando enquanto contagens concorrentes progridem.
+Um destrutor coordenado por condição de teste demonstra zero com a última
+release ainda pendente, sem violar quiescência chamando destroy nesse intervalo.
+Nenhum callback de visita espera, reentra na hash ou chama count.
+
+No contêiner gcc-tm passaram rebuild PIC/não PIC com -Wall -Werror,
+check-hash-count/check-hash-entry/check-hash-acquire/check-hash-create-destroy,
+check (1/2/4 threads e aninhamento) e check-lifecycle (24 chamadas). Count passou
+também com AddressSanitizer/UndefinedBehaviorSanitizer. DejaGNU indisponível;
+suíte completa não executada. Relatos anteriores abaixo são históricos.
+
+## Consultas imutáveis e visita de metadados — 2026-10-28
+
+Implementadas newtm_hash_entry_address, newtm_hash_entry_size e
+newtm_hash_entry_visit em libgomp/newtm-hash.c. Address/size exigem referência
+retida e retornam campos imutáveis sem mutex, sem acessar o objeto ou alterar
+referências. Visit usa o índice imutável da entrada, bloqueia somente seu bucket,
+chama o callback uma vez com chave/tamanho/slot/argumento e desbloqueia antes de
+retornar. O callback preserva referência, propriedade e consistência dos
+metadados; não espera, reentra, executa E/S ou sai por exceção/longjmp.
+Printf/fflush das primitivas foram preservados antes de adquirir qualquer lock.
+Somente count permanece esqueleto; não há reservas nem STM funcional.
+
+Teste permanente: make -C transaction_test -B check-hash-entry. Inclui o fonte
+real com configuração privada Linux x86_64, sem exportações/hooks novos.
+Verifica consultas após liberar outra referência, uma chamada por visita,
+instalação/substituição de metadados com transferência explícita dos antigos,
+argumento nulo, referência preservada e destruição final uma vez. Testa mutex
+adquirido dentro do callback por inspeção restrita ao teste, quatro threads
+incrementando metadados exclusivamente por visitas e progresso de uma visita em
+outro bucket enquanto um bucket está bloqueado externamente. Nenhum callback
+espera/reentra na hash. O teste de acquire agora instala metadados pela visita
+operacional, sem escrita direta no slot.
+
+Validação no contêiner gcc-tm: rebuild da libgomp PIC/não PIC com -Wall -Werror
+e check-hash-entry/check-hash-acquire/check-hash-create-destroy/check/check-lifecycle
+passaram. Testes entry/acquire passaram com AddressSanitizer e
+UndefinedBehaviorSanitizer. DejaGNU indisponível; não executada suíte completa.
+Os relatos anteriores abaixo são históricos.
+
+## Aquisição e consulta com retenção — 2026-10-28
+
+Implementadas newtm_hash_acquire e newtm_hash_lookup_acquire. O índice usa
+uintptr_t com fmix32/fmix64 por UINTPTR_MAX, sem descartar bits inferiores, e
+módulo bucket_count; outras larguras são rejeitadas na compilação. Busca e
+retenção ocorrem sob o mutex do bucket; acquire insere se ausente, valida
+tamanho antes de incrementar e aloca sob lock. Lookup não insere. Nulos,
+tamanho zero, ausência e overflow seguem os contratos, limpando out válido.
+
+Implementada também release, necessária para fechar o ciclo das entradas reais
+na ponte sem vazamentos: decrementa/desliga sob lock e destrói metadados e entrada
+fora dele na última referência. Address/size, visit e count continuam esqueletos.
+A ponte GOMP verifica create/acquire/destroy, publica somente handles válidos,
+rejeita registro sem região/endereço/tamanho válido e mantém flat nesting.
+Todos os printf/fflush e seus formatos foram preservados fora dos mutexes dos
+buckets. Não há reservas, dados privados ou STM; lookup não tem chamador de produção.
+
+Teste permanente: make -C transaction_test -B check-hash-acquire. Inclui o fonte
+real com configuração privada Linux x86_64, sem exportar ABI ou hooks. Cobre
+nulos, ausência sem inserção, tamanho divergente, overflow de referências/contagem
+por injeção interna restaurada, colisões, identidade, retenção por lookup,
+liberação parcial/final, destrutor uma vez fora do lock e quatro threads com
+barreiras para a mesma chave e chaves distintas. Testa mistura na largura nativa
+com 32768 endereços por padrão, duas bases, seis incrementos e cinco capacidades;
+32 bits não foram executados nativamente nesta etapa.
+
+Validação no contêiner gcc-tm com build local: rebuild PIC/não PIC da libgomp e
+check-hash-acquire/check-hash-create-destroy/check/check-lifecycle passaram com
+-O2 -Wall -Werror. Teste novo passou também com GCC do contêiner e
+AddressSanitizer/UndefinedBehaviorSanitizer. Uma sonda C++ com template,
+referência e exceção passou com a libstdc++ e libgomp locais, incluindo outra
+região após o catch; fonte/log em transaction_test/.build/acquire_bridge.cc/.log
+são evidência exploratória local, não teste permanente. DejaGNU permanece
+indisponível.
+Os relatos anteriores abaixo são históricos e não definem o estado atual.
+
+## Implementação incremental de create/destroy — 2026-10-28
+
+Implementadas somente newtm_hash_create e newtm_hash_destroy em libgomp/newtm-hash.c.
+create limpa out válido, rejeita nulos/capacidade zero, verifica overflow antes
+de alocar, inicializa todos os buckets/mutexes e publica a tabela por último.
+destroy exige exclusão externa de novos usuários e conclusão das operações,
+visitas e destruidores; verifica todos os buckets antes de destruir recursos.
+BUSY preserva tabela e referências; OK libera mutexes, buckets e tabela vazia.
+count zero não estabelece quiescência. Printf/fflush e formatos foram mantidos;
+essas duas operações não adquirem mutexes de buckets.
+
+As outras sete primitivas permanecem esqueletos. A ponte agora recebe uma tabela
+real, mas ainda recebe entradas nulas e ignora retornos; sua adaptação integral
+permanece para a etapa das operações sobre entradas. Não há hash de entradas,
+reservas ou STM funcional. Relatos anteriores abaixo são históricos.
+
+Teste permanente: make -C transaction_test -B check-hash-create-destroy.
+O teste inclui o fonte real com headers/configuração privados do build Linux
+x86_64 e liga o archive local, sem exportar símbolos ou inserir hooks na ABI.
+Insere uma entrada ociosa apenas por preparação interna de teste para exercer
+BUSY antes de acquire existir. Não confundir isso com inserção operacional.
+Cobre nulos, capacidade zero, overflow de alocação, capacidades 1/3/1024,
+tabelas independentes, inicialização dos mutexes, BUSY repetido no último bucket
+sem destruir buckets anteriores e destruição após retirar a entrada de teste.
+Não valida quiescência automaticamente nem executa destruição concorrente.
+
+Validação no contêiner gcc-tm (glibc 2.39), build em /usr/src/gcc-tm/gcc-build:
+
+- Rebuild da libgomp PIC/não PIC com -Wall -Werror: passou.
+- Teste novo e make -B check check-lifecycle com -O2 -Wall -Werror: passaram; exemplos com 1/2/4
+  threads, aninhamento e 24 chamadas dos stubs de ciclo de vida.
+- Teste novo com GCC do contêiner e AddressSanitizer/UndefinedBehaviorSanitizer:
+  passou, sem diagnóstico dos sanitizadores.
+- ldd confirmou libgomp local nos exemplos; nm confirmou newtm_hash_*
+  ausentes da API dinâmica e GOMP_transaction_* preservados em GOMP_NEWTM_1.0.
+- DejaGNU não disponível no contêiner; subconjuntos não executados nesta etapa.
+
 ## Documentos de referência e integração futura
 
 | Documento | Responsabilidade |

@@ -68,7 +68,7 @@ libgomp_la_SOURCES = alloc.c atomic.c barrier.c critical.c env.c error.c \
 	parallel.c scope.c sections.c single.c task.c team.c work.c lock.c \
 	mutex.c proc.c sem.c bar.c ptrlock.c time.c fortran.c affinity.c \
 	target.c newtm-hash.c newtm-hash.h \
-	newtm-transaction.c newtm-transaction.h splay-tree.c libgomp-plugin.c \
+	newtm-transaction.c newtm-transaction.h newtm-context.h splay-tree.c libgomp-plugin.c \
 	oacc-parallel.c oacc-host.c \
 	oacc-init.c oacc-mem.c oacc-async.c oacc-plugin.c oacc-cuda.c \
 	priority_queue.c affinity-fmt.c teams.c allocator.c simple-allocator.c \

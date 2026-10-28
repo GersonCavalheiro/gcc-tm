@@ -1,9 +1,123 @@
+## Contexto: criação e limpeza implementadas — 2026-10-28
+
+Estruturas concretas em [newtm-context.h](libgomp/newtm-context.h), privadas à
+libgomp. newtm_begin recebe lease*, slot e outermost: transfere exclusivamente
+a lease da ponte ao contexto externo e preserva-a no aninhamento. O endereço do
+slot canônico deve permanecer estável; contexto guarda slot e execução dona para
+rejeitar consumo por cópia ou outra thread. Isso não valida ponteiros pendentes.
+
+newtm_fail registra a causa, com INVALID dominante, sem limpar recursos.
+newtm_discard desliga o slot e retira reservas sob o bucket; libera buffers,
+listas de intervalos, referências e registros fora dele, depois contexto e lease.
+O owner configura newtm_policy_destroy antes de publicar a tabela; o callback
+exige leitores/escritor vazios e libera somente metadados compartilhados.
+Todos os printf/fflush e diagnósticos permanecem fora dos mutexes.
+
+A ponte GOMP usa esse contexto para entrada e limpeza do rastreamento. Sua lista
+legada de objetos ainda é separada dos registros privados STM e é drenada antes
+do descarte. newtm_end só implementa saída interna; saída externa marca INVALID
+sem publicar, para descarte explícito. A ponte externa usa descarte de trace,
+não commit. Registro STM, criação sob demanda de metadados, reservas, valores
+privados, read/write, publicação e retry continuam pendentes. As estruturas de
+registros já existem para permitir limpeza, mas os testes as preparam por acesso
+privado: isso não significa que registro/acesso STM estejam implementados.
+
+check-lifecycle agora testa contextos reais, incluindo lease, aninhamento,
+slot copiado, outra thread, overflow, falhas dominantes, leitores compartilhados,
+limpeza de buffers/intervalos sem publicação e caminhos fatais. Testes owner,
+diagnósticos e exemplos/carga passaram. ASan/UBSan passaram no teste de contexto
+com fontes de hash/contexto instrumentadas; não há nova execução DejaGNU.
+
+## Lease e destrutor da política — decisões aceitas
+
+Transferir exclusivamente a lease da ponte para o contexto externo, invalidando
+o token de origem sem incrementar participações. Aninhamentos preservam a mesma
+lease. Liberá-la somente após toda a limpeza, inclusive releases e callbacks;
+na falha anterior à transferência, a ponte continua responsável pelo token.
+Não publicar contexto parcialmente inicializado nem duplicar admissão/liberação.
+
+Configurar o destrutor interno da política na criação da tabela global, antes
+de publicá-la, substituindo o NULL atual; manter o callback imutável durante sua
+vida útil. Criar metadados sob demanda: preparar candidato fora do bucket,
+instalar um só em entry_visit e liberar candidato excedente fora do mutex.
+
+Na limpeza, retirar leitores/escritor sob o bucket antes de liberar referências.
+Na última referência, release executa o destrutor fora do bucket. O destrutor
+verifica que leitores/escritor estão vazios e libera somente os metadados
+compartilhados; buffers privados pertencem aos registros. Participações residuais
+são violação interna fatal, nunca removidas à força. Não chamar código do usuário,
+adquirir reservas, acessar valores dos objetos ou liberar contextos nesse callback.
+A lease permanece ativa durante toda a execução do destrutor.
+
+Procedimentos implementados na base do contexto: owner configura destrutor
+interno e begin transfere a lease. Registro e acessos STM continuam pendentes.
+
+## Interface de classificação e estrutura aceita — 2026-10-28
+
+O usuário aceitou a [especificação das estruturas do contexto](OPENMP_TRANSACTION_CONTEXT_PROPOSAL.md):
+lista simples de registros estáveis por tentativa, escalares com buffer sob demanda
+e flags, agregados com buffer completo sob demanda e duas listas de intervalos,
+participação intrusiva de leitores e metadados compartilhados por entrada.
+As alternativas documentadas não substituem essa escolha inicial.
+
+A interface interna newtm_register(ctx, object, size, kind) recebe agora
+`enum newtm_object_kind`: NEWTM_OBJECT_SCALAR ou NEWTM_OBJECT_AGGREGATE.
+O compilador deve classificar o objeto canônico inteiro após validar seu tipo;
+arrays são AGGREGATE, ponteiros listados são SCALAR sem incluir o apontado.
+Não inferir classificação por tamanho/alinhamento. O registro privado conserva
+kind imutável; read/write consultam esse registro. Repetição exige tamanho e
+kind compatíveis; tag desconhecida ou incompatível é INVALID no contrato
+funcional, com limpeza segura e fatal para contexto válido, nunca retry.
+Não altera as nove primitivas da hash nem a ABI pública GOMP existente.
+
+A assinatura, o enum e o log numérico de kind já estão no código; newtm_register
+continua stub: imprime, faz fflush e retorna INVALID sem examinar contexto ou
+objeto. A estrutura aceita está em newtm-context.h, com criação e limpeza
+implementadas. Integrar classificação e registro STM no compilador/ponte.
+
+## Fechamento do subconjunto inicial — decisão do usuário
+
+Todos os acessos, de leitura ou escrita, a objetos cuja vida começou antes da
+tentativa externa exigem registro explícito já alcançado no contexto. Não há
+registro implícito nem fallback à memória comum. Esta decisão substitui a
+permissão anterior de leituras externas não listadas: em `transaction(a) { a += b; }`,
+se b é preexistente, seu acesso exige registro explícito também. Temporários
+automáticos privados são permitidos nos tipos admitidos, recriados a cada retry
+e sem escapar da tentativa; não autorizam exceções ou cleanups do usuário.
+
+INVALID detectado com contexto válido é falha permanente: impedir novos efeitos
+normais, preservar a causa, propagá-la pelos epílogos preparados até o controle
+externo, concluir a limpeza interna segura e somente então emitir diagnóstico
+fatal. Não publicar valores nem executar retry. O descarte libera reservas,
+referências, buffers, contexto e participação do proprietário conforme a
+propriedade de cada recurso. Não introduzir cláusula nem resultado novo na
+linguagem; os status são canais internos. Contextos inválidos/alheios não podem
+ser desreferenciados ou limpos especulativamente. Falta de memória permanece
+fatal; não há promessa de recuperação de OOM nem sua conversão em CONFLICT.
+Essa decisão não muda os retornos das nove primitivas genéricas da hash.
+
+Ficam fora do primeiro subconjunto E/S, chamadas de sistema, locks do usuário e
+malloc/free executados pelo programa dentro da tentativa, inclusive por funções
+chamadas. Admitir alocação exigirá rastreamento de recursos e contrato de descarte
+ou liberação adiada. Alocação e sincronização internas do runtime continuam
+necessárias; seus logs de depuração não concedem suporte a E/S do programa.
+
+O critical do teste de carga é apoio ao rastreamento atual. Reavaliá-lo quando o
+teste verificar isolamento STM real; o teste atual não comprova esse isolamento
+nem constitui uma exceção às restrições do futuro subconjunto funcional.
+
+As decisões semânticas, incluindo cópias privadas, estão fechadas para definir
+o layout do contexto. Layout/ABI, filtros, diagnósticos e execução desse protocolo
+ainda precisam de implementação; os stubs atuais não passam a implementá-los.
+
 # Agente de implementação — Abort e reinício de transações STM em OpenMP
 
 ## Estado e precedência
 
 Este arquivo especifica trabalho futuro; não autoriza sua execução fora da tarefa
-solicitada. O código atual só faz rastreamento. Para a política inicial, aplicar
+solicitada. A diretiva atual registra objetos numa hash operacional, com
+leases de vida útil e encerramento do proprietário; abort/retry continuam
+esqueletos, sem STM. Para a política inicial, aplicar
 as restrições de dados e efeitos de OPENMP_TRANSACTION_HASH_AGENT.md.
 Consultar [OPENMP_TRANSACTION_ACCESS_AGENT.md](OPENMP_TRANSACTION_ACCESS_AGENT.md)
 para os contratos propostos de leitura/escrita. A hash mantém registros e
@@ -13,10 +127,55 @@ Assinaturas stm_* abaixo são pseudocódigo, sem ABI aprovada; newtm_read/write
 e as seis operações newtm_* de ciclo de vida têm esqueletos internos declarados.
 Seus contratos funcionais ainda não são executados. O inventário
 [PRIMITIVES](OPENMP_TRANSACTION_PRIMITIVES.md) registra as assinaturas e a divisão
-entre primitivas, helpers e fases. Propagação segura entre funções permanece pendente.
+entre primitivas, helpers e fases. A propagação entre funções foi definida
+por versões transacionais com contexto/status explícitos e resultado só em
+sucesso; geração da cadeia de chamadas e seus epílogos ainda não implementadas.
 A etapa dos esqueletos escolheu descarte explícito: end que falha preserva a
 tentativa e o controle externo chama discard após cleanups; isso substitui o
 modelo anterior de descarte implícito por end-false.
+
+A camada proprietária OPEN/CLOSING/CLOSED já está implementada e não é a
+máquina de estados da tentativa abaixo. A integração futura deve preservar a
+lease externa enquanto houver referências, tentativas e cleanups dependentes;
+consumir uma tentativa não equivale a fechar a tabela global. Usar visit e
+release operacionais para metadados/referências, sem inferir reserva pela mera
+presença na hash ou pela participação no proprietário.
+
+### Exceções e cleanups do usuário — decisão inicial
+
+Rejeitar inicialmente exceções e cleanups do usuário no subconjunto STM
+funcional, inclusive nas funções preparadas chamadas durante a tentativa.
+Não admitir objetos/temporários que exijam destrutores do usuário, handlers de
+cleanup ou chamadas sem garantia de compatibilidade com essa restrição.
+A aceitação atual do parser/rastreamento e seus testes de desenrolamento não
+significam que esses casos sejam suportados pela futura STM funcional.
+
+A limpeza interna do runtime continua obrigatória: retirar reservas e
+participações semânticas, liberar referências/buffers/contexto e devolver a
+lease do proprietário somente depois dos recursos dependentes. Destrutores
+internos de metadados de política continuam sujeitos a seus contratos; não são
+cleanups de objetos do usuário e não ficam dispensados por esta restrição.
+
+Uma tentativa condenada recusa novos acessos normais via read/write. Não usar
+o caminho normal dessas primitivas em destrutores/cleanups nem relaxar seus
+guards para aparentar suporte. Cleanup interno do protocolo trabalha sobre
+seus próprios recursos e metadados, sem reabrir a tentativa ao código do usuário.
+Exceções do usuário nunca viram CONFLICT, não autorizam retry e nunca provocam
+commit durante desenrolamento. O finally de rastreamento não pode ser convertido
+em confirmação incondicional.
+
+Suporte a exceções/cleanups do usuário fica como trabalho futuro: definir a visão
+de dados acessível aos destrutores com tentativa condenada, seu protocolo de
+acesso separado, ordem de limpeza, vida útil dos buffers/contexto, falhas no
+próprio cleanup e propagação da exceção original. Só então ampliar os casos
+admitidos; não tratar essas decisões como autorização para implementá-los agora.
+A aplicação dos diagnósticos ainda precisa de implementação; esta atualização
+registra a semântica, sem alterar o compilador.
+
+Os ramos de desenrolamento/cleanups do usuário preservados nos contratos
+funcionais gerais abaixo pertencem à extensão futura explicitamente suportada,
+não ao primeiro subconjunto. No subconjunto inicial, falhas retornadas pelas
+versões preparadas seguem epílogos com limpeza interna e descarte externo.
 
 ## Papel
 
@@ -29,7 +188,7 @@ Atue como agente de engenharia de compiladores e runtime, responsável por imple
 3. A lista de variáveis de cada diretiva adiciona endereços/objetos ao conjunto transacional efetivo. Uma transação interna não cria commit independente.
 4. O encerramento normal de uma diretiva interna apenas conclui sua participação. Somente o encerramento da diretiva externa tenta validar e publicar as escritas.
 5. Se o commit externo falhar, o controle externo conduz cleanups e descarte explícito. Somente conflito permite reiniciar **todo o bloco externo**, incluindo chamadas a funções internas, após descarte e espera bem-sucedidos. INVALID e exceções não autorizam retry; nunca reiniciar isoladamente o bloco interno.
-6. Não há abort explícito nem transferência assíncrona de controle. Impedir o acesso conflitante antes de executá-lo e não continuar normalmente com valores inválidos. A falha pode ser propagada até o epílogo externo somente por um caminho seguro que impeça acessos e efeitos posteriores indevidos. O mecanismo de propagação entre funções ainda precisa ser definido; restringir casos sem mecanismo seguro. **Não utilizar `setjmp`/`longjmp` para o caminho normal de retry**.
+6. Não há abort explícito nem transferência assíncrona de controle. Impedir o acesso conflitante antes de executá-lo e não continuar normalmente com valores inválidos. A falha pode ser propagada até o epílogo externo somente por um caminho seguro que impeça acessos e efeitos posteriores indevidos. A propagação entre funções usará versões internas com contexto/status explícitos e resultado só em sucesso; restringir casos ainda sem geração/epílogo seguro. **Não utilizar `setjmp`/`longjmp` para o caminho normal de retry**.
 7. O estado transacional e a profundidade são locais à thread **sob a restrição de ausência de pontos de escalonamento de tarefas durante toda a transação**. Estruturas de coordenação (como uma tabela hash global de metadados) podem ser compartilhadas, com sincronização adequada.
 8. Uma região `transaction` executa integralmente em uma única tarefa OpenMP, sem pontos de escalonamento de tarefas durante sua execução dinâmica. Transações aninhadas na mesma tarefa participam da transação externa. Não exigir `tied` como condição adicional: a ausência de suspensão/migração durante a transação é a propriedade decisiva.
 
@@ -88,8 +247,8 @@ protocolo abaixo. Ausência de contexto não é um estado reutilizável da tenta
 
 Definição consolidada em 2026-10-21. `enum newtm_attempt_state` está declarado
 em `libgomp/newtm-transaction.h`; esta seção define suas transições e propriedade
-para a implementação futura. O contexto continua opaco: nenhum campo, transição,
-guarda ou liberação funcional foi implementado pelos esqueletos. O enum não é
+para a implementação. Contexto privado, criação, condenação e descarte já são
+funcionais; PUBLISHING e confirmação externa continuam futuros. O enum não é
 retorno de operação, ABI pública, nem estado do contexto de rastreamento GOMP.
 Não converter entre ele e os enums de resultado por cast ou comparação numérica.
 
@@ -182,7 +341,8 @@ Protocolo obrigatório do consumidor funcional (fase, não nova função):
    **efetiva após os cleanups** e eventual exceção fora do contexto: erro
    permanente surgido no desenrolamento prevalece sobre conflito. Não presumir
    que read/write normais funcionem em contexto condenado; o protocolo especial
-   de cleanups continua pendente e casos sem suporte precisam ser restringidos.
+   de cleanups do usuário pertence à extensão futura; esses casos são rejeitados
+   inicialmente. A limpeza interna de recursos permanece obrigatória.
 3. Guardar contexto em variável privada do consumidor; marcar CLOSED, zerar
    profundidade e escrever NULL no slot canônico, sem callback ou reentrada
    entre essas ações. Nenhuma liberação começa antes de ambas as guardas
@@ -206,13 +366,10 @@ Nem finalmente nem exceção devem executar um segundo consumidor após sucesso.
 
 ### Limite dos esqueletos e validação futura
 
-Os oito stubs de acesso/ciclo de vida continuam imprimindo parâmetros e
-retornando INVALID em seus respectivos domínios; begin apenas inicializa
-outermost=false. Eles não criam ACTIVE, não marcam INVALID no contexto, não
-publicam, não fecham nem descartam. **Nunca interpretar esse INVALID como
-diagnóstico funcional, nem o log de end como confirmação bem-sucedida.**
-O enum define o contrato; prevenção operacional de dupla limpeza depende da
-futura implementação do contexto e do protocolo acima.
+Begin/fail/discard já implementam as transições antes de publicação, e end reduz
+somente níveis internos. End externo condena com INVALID sem publicar. Os stubs
+restantes continuam retornando INVALID; seus logs não comprovam STM funcional.
+O teste de lifecycle verifica consumo único, causa dominante e liberação real.
 
 Ao implementá-los, testar transições válidas e rejeitadas, prioridade INVALID,
 falha de end interno sem reduzir profundidade, falha antes da publicação com
@@ -246,7 +403,7 @@ thread é permitida.
 Falha: não publicar nível parcial; preservar slot/profundidade e escrever
 outermost=false quando a saída for válida. O enum lifecycle separa sucesso,
 conflito e erro permanente; o bool não codifica erro. Alocação é fatal.
-newtm_begin recebe tabela emprestada e slot; o registro ocorre separadamente por
+newtm_begin recebe lease a transferir, slot e outermost; o registro ocorre separadamente por
 newtm_register após entrada OK. Contexto condenado não entra em nível normal.
 
 ### stm_end: encerramento normal; interface interna newtm_end(slot)
@@ -328,7 +485,7 @@ Usar o contrato proposto do agente de acesso sem duplicar suas assinaturas:
 | --- | --- |
 | `NEWTM_ACCESS_OK` | Consumir o resultado e continuar a tentativa ativa. |
 | `NEWTM_ACCESS_CONFLICT` | Não consumir resultado; a tentativa inteira está condenada. Propagar a falha e conduzir descarte antes do retry externo. |
-| `NEWTM_ACCESS_INVALID` | Falha permanente detectada; impedir commit, não consumir resultado nem iniciar retry automático. Encaminhar para diagnóstico/erro definido. |
+| `NEWTM_ACCESS_INVALID` | Falha permanente detectada; impedir commit, não consumir resultado nem iniciar retry automático. Propagar até o controle externo, limpar com segurança e emitir diagnóstico fatal; sem novo resultado na linguagem. |
 
 A primitiva não deve liberar globalmente reservas, buffers e referências ao
 retornar falha. Para contexto válido e proprietário correto, registrar a causa
@@ -349,13 +506,26 @@ Sequência de tratamento de uma tentativa condenada:
    internos já desfeitos.
 4. Em CONFLICT, aguardar sem reservas/locks e reiniciar todo o bloco externo,
    recriando temporários e processando novamente as listas dinâmicas.
-5. Em INVALID ou outra falha permanente, não repetir. Concluir o tratamento de
-   erro explícito previsto; erros fatais não precisam fingir retorno recuperável.
+5. Em INVALID detectado com contexto válido, concluir a limpeza segura e emitir
+   diagnóstico fatal. Nunca repetir, publicar ou devolver resultado à linguagem.
+   Falta de memória permanece fatal.
 
-O mecanismo entre funções e o protocolo especial de acesso por cleanups ainda
-precisam ser definidos. Restringir casos sem suporte, sem inventar convenção de
-retorno de valores fictícios ou usar setjmp/longjmp no retry normal. Não converter
-exceção do usuário em CONFLICT.
+Decisão do usuário: gerar versões internas transacionais com contexto e
+status explícitos, preservando a assinatura pública. Preencher resultado
+somente em OK; em falha, o chamador não o usa e segue ao próprio epílogo de
+falha, propagando a causa pela cadeia. Funções internas não descartam nem
+confirmam a tentativa externa. O contexto/lease permanece válido até todos os
+cleanups suportados e o descarte único externo. Não há retorno fictício para
+simular sucesso, nem setjmp/longjmp no retry normal.
+
+Chamadas indiretas ou externas sem preparação continuam restritas; pure/const
+não prova que uma função lê a visão privada. A ABI das versões geradas ainda precisa de especificação e implementação.
+Exceções/cleanups do usuário são rejeitados inicialmente; o protocolo especial
+para acessos de destrutores em tentativa condenada é trabalho futuro.
+Não converter exceção em CONFLICT nem executar commit durante desenrolamento.
+A limpeza interna continua obrigatória, sem usar read/write normais para
+contornar os guards de uma tentativa condenada. Ver o
+[contrato de chamadas](OPENMP_TRANSACTION_HASH_AGENT.md#versões-transacionais-e-propagação-de-falha).
 
 O TRY_FINALLY atual pertence ao rastreamento. Na integração funcional, separar
 commit no término normal, descarte no desenrolamento e decisão de reinício.
@@ -366,13 +536,14 @@ Nunca confirmar automaticamente no finally de uma tentativa condenada.
 **Garantia restrita aos dados transacionais:** o commit bem-sucedido deve tornar visíveis as escritas transacionais como uma unidade, segundo o protocolo de isolamento e validação escolhido. Uma tentativa abortada não pode deixar alterações visíveis nesses objetos. Leituras devem observar as próprias escritas especulativas (*read-your-writes*).
 
 **Dados não transacionais:** aplicar a política restritiva do agente da hash:
-escritas em objetos cuja vida começou antes da transação externa exigem registro
+leituras e escritas em objetos cuja vida começou antes da transação externa exigem registro
 prévio na lista externa ou em uma lista interna já processada. Não ampliar o
 conjunto implicitamente. Restringir E/S e chamadas com efeitos externos que não
 possam ser descartados ou repetidos com segurança; diagnosticar os casos
 identificáveis. Esses efeitos não são revertidos pelo protocolo e a ausência de
-diagnóstico não constitui suporte. Leituras externas não listadas continuam uma
-decisão em aberto; não prometer consistência para elas.
+diagnóstico não constitui suporte. A permissão anterior de leituras externas
+comuns foi substituída: todos os acessos preexistentes exigem registro explícito.
+Ponteiros sem identidade conhecida continuam rejeitados, sem fallback comum.
 
 Variáveis locais automáticas merecem análise separada: ao reiniciar o bloco via salto gerado, o compilador deve preservar a semântica de C/C++ e a inicialização/vida útil dos objetos. Não pressupor que `goto retry` reverta variáveis locais modificadas na tentativa anterior. Para C++, considerar construtores, destrutores e exceções; não emitir saltos que violem regras de inicialização ou destruam incorretamente objetos.
 
@@ -396,7 +567,10 @@ O conjunto acima é uma **política inicial deliberadamente conservadora**, não
 
 **`tied` não basta:** a afinidade de uma tarefa `tied` à thread que a iniciou não impede sua suspensão e a execução de tarefas descendentes pela mesma thread; um TLS contendo a transação da tarefa suspensa poderia ser confundido com o contexto de outra tarefa. **Não exigir `tied` por si só**: se nenhum ponto de escalonamento for encontrado enquanto a transação está ativa, uma tarefa `untied` também não migra nesse intervalo. A regra deve ser formulada em termos de ausência de escalonamento, e não apenas de tipo da tarefa.
 
-**`critical`, `atomic` e locks:** não são automaticamente proibidos pela regra de pontos de escalonamento, mas tampouco são automaticamente seguros. `critical` e locks podem bloquear ou causar deadlock em combinação com outras transações; `atomic`, `critical` e operações de lock que alterem estado não transacional produzem efeitos que **não são desfeitos** por rollback. Proibir ou diagnosticar o acesso a objetos transacionais por vias não instrumentadas; documentar explicitamente o tratamento de operações bloqueantes e de ordem de aquisição de locks. Na primeira versão, preferir rejeitar combinações cuja segurança não tenha sido demonstrada.
+**`critical`, `atomic` e locks:** não são automaticamente proibidos pela regra de pontos de escalonamento, mas tampouco são automaticamente seguros. `critical` e locks podem bloquear ou causar deadlock em combinação com outras transações; `atomic`, `critical` e operações de lock que alterem estado não transacional produzem efeitos que **não são desfeitos** por rollback. Proibir ou diagnosticar o acesso a objetos transacionais por vias não instrumentadas; documentar explicitamente o tratamento de operações bloqueantes e de ordem de aquisição de locks. No primeiro subconjunto, rejeitar locks do usuário e estas sincronizações do
+programa dentro da tentativa. O critical da carga atual é apoio ao rastreamento,
+a reavaliar quando houver teste de isolamento STM real; não autoriza seu uso
+no futuro subconjunto funcional.
 
 **Verificação em duas camadas:**
 
@@ -500,12 +674,19 @@ e futuros e pontos de chamada. Os contratos especializados deste agente
 permanecem detalhados aqui; mudanças de interface devem atualizar também o
 inventário. Os nomes stm_* continuam conceituais, sem assinatura C ou ABI definida.
 
-A sequência solicitada prioriza contratos e esqueletos antes das operações reais.
-Os seis esqueletos internos de ciclo de vida já foram acrescentados; contratos,
-classificação e evidências estão no inventário e no relatório de implementação.
-A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
-Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
-`/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
+Estado consolidado em 2026-10-28: as nove primitivas da hash, a ponte com
+referências reais e o controle de admissão/participações OPEN/CLOSING/CLOSED
+estão implementados. Os testes permanentes incluem estrutura, concorrência,
+metadados, contagem, diagnósticos, encerramento e carga parametrizada 1:9/1:1/9:1.
+Não listar novamente a implementação da hash ou seu shutdown como tarefas futuras.
+Read/write e os seis serviços de ciclo de vida da tentativa continuam esqueletos;
+reservas, dados privados, instrumentação de acessos, propagação segura, commit,
+descarte e retry funcionais continuam pendentes. A ordem de integração está em
+[próximas etapas](OPENMP_TRANSACTION_PROJECT_AGENT.md#orientação-para-as-próximas-etapas).
+Não confundir participação do proprietário com reserva/estado de tentativa STM.
+Fontes: `gcc-src-tm/`; build: `gcc-build/`; testes: `transaction_test/`, na raiz do
+repositório. No contêiner atual, a raiz é `/usr/src/gcc-tm`. Caminhos antigos em
+relatos datados são históricos; adaptar comandos à cópia em uso.
 
 ## Esqueletos de ciclo de vida entregues
 

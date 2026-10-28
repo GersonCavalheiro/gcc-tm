@@ -326,9 +326,16 @@ e futuros e pontos de chamada. Os contratos especializados deste agente
 permanecem detalhados aqui; mudanças de interface devem atualizar também o
 inventário. Os nomes stm_* continuam conceituais, sem assinatura C ou ABI definida.
 
-A sequência solicitada prioriza contratos e esqueletos antes das operações reais.
-Os seis esqueletos internos de ciclo de vida já foram acrescentados; contratos,
-classificação e evidências estão no inventário e no relatório de implementação.
-A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
-Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
-`/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
+Estado consolidado em 2026-10-28: as nove primitivas da hash, a ponte com
+referências reais e o controle de admissão/participações OPEN/CLOSING/CLOSED
+estão implementados. Os testes permanentes incluem estrutura, concorrência,
+metadados, contagem, diagnósticos, encerramento e carga parametrizada 1:9/1:1/9:1.
+Não listar novamente a implementação da hash ou seu shutdown como tarefas futuras.
+Read/write e os seis serviços de ciclo de vida da tentativa continuam esqueletos;
+reservas, dados privados, instrumentação de acessos, propagação segura, commit,
+descarte e retry funcionais continuam pendentes. A ordem de integração está em
+[próximas etapas](OPENMP_TRANSACTION_PROJECT_AGENT.md#orientação-para-as-próximas-etapas).
+Não confundir participação do proprietário com reserva/estado de tentativa STM.
+Fontes: `gcc-src-tm/`; build: `gcc-build/`; testes: `transaction_test/`, na raiz do
+repositório. No contêiner atual, a raiz é `/usr/src/gcc-tm`. Caminhos antigos em
+relatos datados são históricos; adaptar comandos à cópia em uso.

@@ -1,75 +1,185 @@
-/* Contract checks for trace-only lifecycle stubs, not a functional context.
-   Link the static libgomp archive to exercise its hidden internal symbols.  */
-#include "newtm-transaction.h"
+/* Context lifecycle/cleanup tests.  Historical filename; begin/fail/discard
+   now operate on real storage.  Private inspection adds no exported ABI. */
+#include "newtm-context.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #undef NDEBUG
 #include <assert.h>
 
-int
-main (void)
+/* Install prepared metadata under the bucket; allocation is outside it. */
+static void
+install (const void *object, size_t size, void **data, void *arg)
 {
-  /* Valid, aligned storage passed opaquely: the stub must not inspect it.
-     Do not define struct newtm_context here or simulate its future layout.  */
-  union { max_align_t alignment; unsigned char bytes[64]; } context, table_data;
-  unsigned char saved_context[sizeof context], saved_table[sizeof table_data];
-  unsigned char object[32], saved_object[sizeof object];
-  memset (&context, 0xa5, sizeof context);
-  memset (&table_data, 0x5a, sizeof table_data);
-  memset (object, 0x33, sizeof object);
-  memcpy (saved_context, &context, sizeof context);
-  memcpy (saved_table, &table_data, sizeof table_data);
-  memcpy (saved_object, object, sizeof object);
-  struct newtm_context *opaque = (struct newtm_context *) &context;
-  struct newtm_context *slot = opaque, *empty = NULL;
-  struct newtm_hash_table *table = (struct newtm_hash_table *) &table_data;
-  bool outermost = true;
+  (void) object; (void) size;
+  assert (*data == NULL);
+  *data = arg;
+}
 
-#define CHECK(call) do { \
-  assert ((call) == NEWTM_LIFECYCLE_INVALID); \
-  assert (slot == opaque && empty == NULL); \
-  assert (memcmp (&context, saved_context, sizeof context) == 0); \
-  assert (memcmp (&table_data, saved_table, sizeof table_data) == 0); \
-  assert (memcmp (object, saved_object, sizeof object) == 0); \
-} while (0)
+/* Add a second context's reader to exercise non-head removal and lifetime. */
+static void
+add_reader (const void *object, size_t size, void **data, void *arg)
+{
+  struct newtm_object_policy *p = *data;
+  struct newtm_record *r = arg;
+  assert (p && !p->writer && object == r->object && size == r->size);
+  r->reader_next = p->readers;
+  p->readers = r;
+}
 
-  CHECK (newtm_begin (table, &slot, &outermost));
-  assert (!outermost);
-  outermost = true;
-  CHECK (newtm_begin (table, &empty, &outermost));
-  assert (!outermost);
-  outermost = true;
-  CHECK (newtm_begin (NULL, NULL, &outermost));
-  assert (!outermost);
-  CHECK (newtm_begin (table, &slot, NULL));
-  CHECK (newtm_begin (NULL, NULL, NULL));
+static void *
+foreign_discard (void *arg)
+{
+  assert (newtm_discard (arg) == NEWTM_LIFECYCLE_INVALID);
+  return NULL;
+}
 
-  CHECK (newtm_register (slot, object, sizeof object));
-  CHECK (newtm_register (NULL, NULL, 0));
-  CHECK (newtm_register (slot, object, SIZE_MAX));
+static struct newtm_record *
+record (struct newtm_context *ctx, void *object, size_t size,
+        enum newtm_object_kind kind, enum newtm_reservation reservation)
+{
+  struct newtm_record *r = calloc (1, sizeof (*r));
+  struct newtm_object_policy *p = calloc (1, sizeof (*p));
+  assert (r && p);
+  assert (newtm_hash_acquire (ctx->lease.table, object, size, &r->entry)
+          == NEWTM_HASH_OK);
+  r->object = object; r->size = size; r->kind = kind;
+  r->context = ctx; r->reservation = reservation;
+  if (reservation == NEWTM_RESERVATION_READ) p->readers = r;
+  if (reservation == NEWTM_RESERVATION_WRITE) p->writer = r;
+  newtm_hash_entry_visit (ctx->lease.table, r->entry, install, p);
+  r->next = ctx->records; ctx->records = r;
+  return r;
+}
 
-  CHECK (newtm_end (&slot));
-  CHECK (newtm_end (&empty));
-  CHECK (newtm_end (NULL));
+extern void GOMP_transaction_begin (void);
+extern void GOMP_transaction_register (void *, size_t);
 
-  CHECK (newtm_fail (slot, NEWTM_ACCESS_CONFLICT));
-  CHECK (newtm_fail (slot, NEWTM_ACCESS_INVALID));
-  CHECK (newtm_fail (slot, NEWTM_ACCESS_OK));
-  CHECK (newtm_fail (slot, (enum newtm_access_status) 99));
-  CHECK (newtm_fail (NULL, NEWTM_ACCESS_CONFLICT));
+int
+main (int argc, char **argv)
+{
+  if (argc == 2 && strcmp (argv[1], "policy-live") == 0)
+    {
+      struct newtm_record live = { 0 };
+      struct newtm_object_policy policy = { &live, NULL };
+      newtm_policy_destroy (&policy);
+      abort ();
+    }
+  if (argc == 2 && strcmp (argv[1], "bridge-invalid") == 0)
+    {
+      int value = 0;
+      GOMP_transaction_begin ();
+      GOMP_transaction_register (&value, sizeof value);
+      GOMP_transaction_register (NULL, 0);
+      abort ();
+    }
 
-  CHECK (newtm_discard (&slot));
-  /* Repeated disposal/exit must not manufacture success or consume the opaque
-     handle.  No actual cleanup or CLOSED transition occurs in a stub.  */
-  CHECK (newtm_discard (&slot));
-  CHECK (newtm_end (&slot));
-  CHECK (newtm_discard (&empty));
-  CHECK (newtm_discard (NULL));
+  struct newtm_hash_owner_lease lease = { 0 };
+  struct newtm_context *ctx = NULL;
+  bool outer = true;
+  assert (newtm_begin (NULL, &ctx, &outer) == NEWTM_LIFECYCLE_INVALID);
+  assert (!ctx && !outer);
+  assert (newtm_discard (NULL) == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
+  struct newtm_hash_table *table = lease.table;
+  assert (newtm_begin (&lease, NULL, &outer) == NEWTM_LIFECYCLE_INVALID);
+  assert (lease.active && lease.table == table);
+  assert (newtm_begin (&lease, &ctx, NULL) == NEWTM_LIFECYCLE_INVALID);
+  assert (lease.active && !ctx);
+  assert (newtm_begin (&lease, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
+  assert (outer && ctx && !lease.active && !lease.table);
+  assert (ctx->depth == 1 && ctx->state == NEWTM_ATTEMPT_ACTIVE);
+  assert (ctx->records == NULL && ctx->lease.active);
+  assert (newtm_begin (NULL, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
+  assert (!outer && ctx->depth == 2);
+  assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_OK && ctx->depth == 1);
 
-  CHECK (newtm_backoff (0));
-  CHECK (newtm_backoff (1));
-  CHECK (newtm_backoff (SIZE_MAX));
-  printf ("[teste] lifecycle stubs OK; size_max=%zu\n", (size_t) SIZE_MAX);
+  struct newtm_context *copy = ctx;
+  assert (newtm_discard (&copy) == NEWTM_LIFECYCLE_INVALID);
+  assert (ctx == copy && ctx->depth == 1);
+  assert (newtm_begin (NULL, &copy, &outer) == NEWTM_LIFECYCLE_INVALID);
+  pthread_t thread;
+  assert (!pthread_create (&thread, NULL, foreign_discard, &ctx));
+  assert (!pthread_join (thread, NULL));
+  assert (ctx == copy && ctx->state == NEWTM_ATTEMPT_ACTIVE);
+
+  /* Unimplemented operations preserve their buffers/arguments and return no
+     fabricated success.  Explicit kind logging remains part of this test. */
+  int scalar = 42;
+  unsigned char object[32]; memset (object, 0x33, sizeof object);
+  assert (newtm_register (ctx, &scalar, sizeof scalar, NEWTM_OBJECT_SCALAR)
+          == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_register (ctx, object, sizeof object, NEWTM_OBJECT_AGGREGATE)
+          == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_register (NULL, NULL, 0, (enum newtm_object_kind) 99)
+          == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_backoff (1) == NEWTM_LIFECYCLE_INVALID);
+  assert (scalar == 42 && object[0] == 0x33);
+
+  ctx->depth = SIZE_MAX;
+  assert (newtm_begin (NULL, &ctx, &outer) == NEWTM_LIFECYCLE_INVALID);
+  assert (ctx->depth == SIZE_MAX && ctx->state == NEWTM_ATTEMPT_INVALID);
+  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
+  assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
+  assert (newtm_begin (&lease, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
+  /* Outer commit remains unavailable, even with no records. */
+  assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_INVALID);
+  assert (ctx && ctx->state == NEWTM_ATTEMPT_INVALID);
+  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
+  assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
+  assert (newtm_begin (&lease, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
+
+  /* Seed valid future policy records to exercise the real cleanup of buffers,
+     independent interval lists, reader and writer links, and final callbacks. */
+  struct newtm_record *s = record (ctx, &scalar, sizeof scalar,
+                                  NEWTM_OBJECT_SCALAR, NEWTM_RESERVATION_READ);
+  s->value.scalar.bytes = malloc (sizeof scalar);
+  assert (s->value.scalar.bytes);
+  struct newtm_record *a = record (ctx, object, sizeof object,
+                                  NEWTM_OBJECT_AGGREGATE, NEWTM_RESERVATION_WRITE);
+  a->value.aggregate.bytes = malloc (sizeof object);
+  a->value.aggregate.valid = calloc (1, sizeof (struct newtm_interval));
+  a->value.aggregate.modified = calloc (1, sizeof (struct newtm_interval));
+  assert (a->value.aggregate.bytes && a->value.aggregate.valid
+          && a->value.aggregate.modified);
+  memset (a->value.aggregate.bytes, 0x77, sizeof object);
+  a->value.aggregate.valid->end = sizeof object;
+  a->value.aggregate.modified->end = sizeof object;
+  struct newtm_context *other = NULL;
+  assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
+  assert (newtm_begin (&lease, &other, &outer) == NEWTM_LIFECYCLE_OK);
+  struct newtm_record *reader = calloc (1, sizeof (*reader));
+  assert (reader);
+  reader->context = other; reader->object = &scalar;
+  reader->size = sizeof scalar; reader->kind = NEWTM_OBJECT_SCALAR;
+  reader->reservation = NEWTM_RESERVATION_READ;
+  assert (newtm_hash_acquire (table, &scalar, sizeof scalar, &reader->entry)
+          == NEWTM_HASH_OK);
+  other->records = reader;
+  newtm_hash_entry_visit (table, reader->entry, add_reader, reader);
+  assert (newtm_hash_count (table) == 2);
+  assert (newtm_hash_owner_close () == NEWTM_HASH_BUSY);
+  /* Already admitted nesting remains legal after the close of admission. */
+  assert (newtm_begin (NULL, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
+  assert (newtm_fail (ctx, NEWTM_ACCESS_CONFLICT) == NEWTM_LIFECYCLE_CONFLICT);
+  assert (newtm_begin (NULL, &ctx, &outer) == NEWTM_LIFECYCLE_CONFLICT);
+  assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_CONFLICT);
+  assert (ctx->depth == 2 && ctx->records == a);
+  assert (newtm_fail (ctx, NEWTM_ACCESS_INVALID) == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_fail (ctx, NEWTM_ACCESS_CONFLICT) == NEWTM_LIFECYCLE_INVALID);
+  assert (ctx->failure.reason == NEWTM_REASON_INVALID_OPERATION);
+  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
+  assert (newtm_hash_count (table) == 1); /* Other reader keeps entry alive. */
+  assert (newtm_hash_owner_close () == NEWTM_HASH_BUSY);
+  assert (newtm_discard (&other) == NEWTM_LIFECYCLE_OK && !other);
+  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_INVALID);
+  assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_INVALID);
+  assert (scalar == 42);
+  for (size_t i = 0; i < sizeof object; ++i) assert (object[i] == 0x33);
+  assert (newtm_hash_owner_close () == NEWTM_HASH_OK);
+  puts ("[teste] context lifecycle OK");
   return 0;
 }

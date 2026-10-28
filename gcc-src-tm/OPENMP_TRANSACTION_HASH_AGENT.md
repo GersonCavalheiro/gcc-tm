@@ -1,27 +1,167 @@
-## Atualização: chamadas de instrumentação
+## Contexto: criação e limpeza implementadas — 2026-10-28
 
-A diretiva agora gera chamadas à ponte provisória `GOMP_transaction_*`.
-Essa ponte chama create/acquire/release/destroy nos pontos de vida útil
-correspondentes. As primitivas hash continuam sem funcionalidade: imprimem
-argumentos, devolvem INVALID/handles nulos ou null/zero e não encerram mais o
-processo. A ponte ignora os estados de falha somente para permitir a sequência
-de mensagens nesta etapa. Consulte a seção inicial de
-`OPENMP_TRANSACTION_IMPLEMENTATION.md` para o percurso e as limitações atuais.
-O restante deste documento preserva a especificação da implementação futura;
-o estado atual substitui relatos anteriores sobre `gomp_fatal`.
+Estruturas concretas em [newtm-context.h](libgomp/newtm-context.h), privadas à
+libgomp. newtm_begin recebe lease*, slot e outermost: transfere exclusivamente
+a lease da ponte ao contexto externo e preserva-a no aninhamento. O endereço do
+slot canônico deve permanecer estável; contexto guarda slot e execução dona para
+rejeitar consumo por cópia ou outra thread. Isso não valida ponteiros pendentes.
+
+newtm_fail registra a causa, com INVALID dominante, sem limpar recursos.
+newtm_discard desliga o slot e retira reservas sob o bucket; libera buffers,
+listas de intervalos, referências e registros fora dele, depois contexto e lease.
+O owner configura newtm_policy_destroy antes de publicar a tabela; o callback
+exige leitores/escritor vazios e libera somente metadados compartilhados.
+Todos os printf/fflush e diagnósticos permanecem fora dos mutexes.
+
+A ponte GOMP usa esse contexto para entrada e limpeza do rastreamento. Sua lista
+legada de objetos ainda é separada dos registros privados STM e é drenada antes
+do descarte. newtm_end só implementa saída interna; saída externa marca INVALID
+sem publicar, para descarte explícito. A ponte externa usa descarte de trace,
+não commit. Registro STM, criação sob demanda de metadados, reservas, valores
+privados, read/write, publicação e retry continuam pendentes. As estruturas de
+registros já existem para permitir limpeza, mas os testes as preparam por acesso
+privado: isso não significa que registro/acesso STM estejam implementados.
+
+check-lifecycle agora testa contextos reais, incluindo lease, aninhamento,
+slot copiado, outra thread, overflow, falhas dominantes, leitores compartilhados,
+limpeza de buffers/intervalos sem publicação e caminhos fatais. Testes owner,
+diagnósticos e exemplos/carga passaram. ASan/UBSan passaram no teste de contexto
+com fontes de hash/contexto instrumentadas; não há nova execução DejaGNU.
+
+## Lease e destrutor da política — decisões aceitas
+
+Transferir exclusivamente a lease da ponte para o contexto externo, invalidando
+o token de origem sem incrementar participações. Aninhamentos preservam a mesma
+lease. Liberá-la somente após toda a limpeza, inclusive releases e callbacks;
+na falha anterior à transferência, a ponte continua responsável pelo token.
+Não publicar contexto parcialmente inicializado nem duplicar admissão/liberação.
+
+Configurar o destrutor interno da política na criação da tabela global, antes
+de publicá-la, substituindo o NULL atual; manter o callback imutável durante sua
+vida útil. Criar metadados sob demanda: preparar candidato fora do bucket,
+instalar um só em entry_visit e liberar candidato excedente fora do mutex.
+
+Na limpeza, retirar leitores/escritor sob o bucket antes de liberar referências.
+Na última referência, release executa o destrutor fora do bucket. O destrutor
+verifica que leitores/escritor estão vazios e libera somente os metadados
+compartilhados; buffers privados pertencem aos registros. Participações residuais
+são violação interna fatal, nunca removidas à força. Não chamar código do usuário,
+adquirir reservas, acessar valores dos objetos ou liberar contextos nesse callback.
+A lease permanece ativa durante toda a execução do destrutor.
+
+Procedimentos implementados na base do contexto: owner configura destrutor
+interno e begin transfere a lease. Registro e acessos STM continuam pendentes.
+
+## Interface de classificação e estrutura aceita — 2026-10-28
+
+O usuário aceitou a [especificação das estruturas do contexto](OPENMP_TRANSACTION_CONTEXT_PROPOSAL.md):
+lista simples de registros estáveis por tentativa, escalares com buffer sob demanda
+e flags, agregados com buffer completo sob demanda e duas listas de intervalos,
+participação intrusiva de leitores e metadados compartilhados por entrada.
+As alternativas documentadas não substituem essa escolha inicial.
+
+A interface interna newtm_register(ctx, object, size, kind) recebe agora
+`enum newtm_object_kind`: NEWTM_OBJECT_SCALAR ou NEWTM_OBJECT_AGGREGATE.
+O compilador deve classificar o objeto canônico inteiro após validar seu tipo;
+arrays são AGGREGATE, ponteiros listados são SCALAR sem incluir o apontado.
+Não inferir classificação por tamanho/alinhamento. O registro privado conserva
+kind imutável; read/write consultam esse registro. Repetição exige tamanho e
+kind compatíveis; tag desconhecida ou incompatível é INVALID no contrato
+funcional, com limpeza segura e fatal para contexto válido, nunca retry.
+Não altera as nove primitivas da hash nem a ABI pública GOMP existente.
+
+A assinatura, o enum e o log numérico de kind já estão no código; newtm_register
+continua stub: imprime, faz fflush e retorna INVALID sem examinar contexto ou
+objeto. A estrutura aceita está em newtm-context.h, com criação e limpeza
+implementadas. Integrar classificação e registro STM no compilador/ponte.
+
+## Organização escolhida para o contexto
+
+Cada tentativa externa mantém uma lista de registros, compartilhada pelos níveis
+aninhados do mesmo contexto. Cada registro corresponde a um objeto canônico
+registrado e permanece em endereço estável até sua remoção na limpeza. Repetir o
+registro do mesmo objeto reutiliza o registro existente; a busca inicial é linear.
+Não introduzir agora vetor de registros nem índice privado adicional.
+
+O contexto contém controle da tentativa, profundidade, causa e lease do
+proprietário. Seus registros mantêm referências à hash, participação/reserva e
+representação privada. Metadados compartilhados de leitores/escritor permanecem
+associados à entrada da hash e sincronizados pelo mutex do bucket; não confundir
+esses metadados com o estado privado da tentativa.
+
+Escalares usam representação simples. Para agregados, escolher buffer da extensão
+completa do objeto, preenchido sob demanda, e listas de intervalos válidos e
+modificados. Alocar a extensão não implica ler ou inicializar todo o objeto.
+Intervalos modificados devem estar contidos nos válidos; leituras completam
+somente trechos solicitados ausentes e commit publica somente modificados.
+A unidade de conflito e os endereços lógicos originais permanecem preservados.
+
+Esta escolha define a organização inicial. Campos C, armazenamento dos escalares,
+representação dos limites/união de intervalos e ordem detalhada de liberação
+precisam ser especificados antes da implementação. Avaliar otimizações de busca
+e alocação após obter funcionamento correto. Nenhuma estrutura executável foi
+introduzida por esta atualização documental.
+
+## Fechamento do subconjunto inicial — decisão do usuário
+
+Todos os acessos, de leitura ou escrita, a objetos cuja vida começou antes da
+tentativa externa exigem registro explícito já alcançado no contexto. Não há
+registro implícito nem fallback à memória comum. Esta decisão substitui a
+permissão anterior de leituras externas não listadas: em `transaction(a) { a += b; }`,
+se b é preexistente, seu acesso exige registro explícito também. Temporários
+automáticos privados são permitidos nos tipos admitidos, recriados a cada retry
+e sem escapar da tentativa; não autorizam exceções ou cleanups do usuário.
+
+INVALID detectado com contexto válido é falha permanente: impedir novos efeitos
+normais, preservar a causa, propagá-la pelos epílogos preparados até o controle
+externo, concluir a limpeza interna segura e somente então emitir diagnóstico
+fatal. Não publicar valores nem executar retry. O descarte libera reservas,
+referências, buffers, contexto e participação do proprietário conforme a
+propriedade de cada recurso. Não introduzir cláusula nem resultado novo na
+linguagem; os status são canais internos. Contextos inválidos/alheios não podem
+ser desreferenciados ou limpos especulativamente. Falta de memória permanece
+fatal; não há promessa de recuperação de OOM nem sua conversão em CONFLICT.
+Essa decisão não muda os retornos das nove primitivas genéricas da hash.
+
+Ficam fora do primeiro subconjunto E/S, chamadas de sistema, locks do usuário e
+malloc/free executados pelo programa dentro da tentativa, inclusive por funções
+chamadas. Admitir alocação exigirá rastreamento de recursos e contrato de descarte
+ou liberação adiada. Alocação e sincronização internas do runtime continuam
+necessárias; seus logs de depuração não concedem suporte a E/S do programa.
+
+O critical do teste de carga é apoio ao rastreamento atual. Reavaliá-lo quando o
+teste verificar isolamento STM real; o teste atual não comprova esse isolamento
+nem constitui uma exceção às restrições do futuro subconjunto funcional.
+
+As decisões semânticas, incluindo cópias privadas, estão fechadas para definir
+o layout do contexto. Layout/ABI, filtros, diagnósticos e execução desse protocolo
+ainda precisam de implementação; os stubs atuais não passam a implementá-los.
 
 # Agente orientador: biblioteca hash de transaction
 
-## Missão e referências
+## Missão, referências e estado — 2026-10-28
 
-Oriente a implementação da biblioteca hash usada em runtime pela extensão
-`#pragma omp transaction`. Este documento especifica trabalho futuro: sua criação
-não autoriza implementar ou modificar o compilador e o runtime nesta etapa.
-Leia também `OPENMP_AGENT.md`, `OPENMP_CRITICAL_AGENT.md`,
-`OPENMP_TRANSACTION_SCOPE_AGENT.md` e `OPENMP_TRANSACTION_IMPLEMENTATION.md`.
-Confira sempre o código: partes desses documentos descrevem estados anteriores.
-Os caminhos são relativos à raiz dos fontes; o build existente fica em
-`/usr/src/gcc-build`. Localize funções pelo nome, pois linhas mudam.
+Manter a estrutura hash operacional e seus contratos. As nove primitivas em
+libgomp/newtm-hash.c/.h estão implementadas, com referências reais e callbacks
+protegidos por bucket; a ponte GOMP usa leases do proprietário e encerramento
+OPEN/CLOSING/CLOSED. Não há hash estrutural ou protocolo de shutdown a implementar
+do zero. Leia também OPENMP_AGENT.md, OPENMP_CRITICAL_AGENT.md,
+OPENMP_TRANSACTION_HASH_IMPLEMENTATION_AGENT.md e OPENMP_TRANSACTION_IMPLEMENTATION.md.
+
+O restante deste documento distingue a infraestrutura entregue da política STM
+futura: registros e referências não concedem reservas nem copiam/publicam valores
+do programa. Read/write, contexto de tentativa, commit, descarte e retry funcionais
+continuam pendentes. Não executar os stubs como operações bem-sucedidas.
+
+Os testes permanentes em ../transaction_test cobrem estrutura, referências,
+metadados, contagem, diagnósticos e encerramento. A carga parametrizada
+transaction_carga e verificar_carga.py executam W:R=1:9,1:1,9:1 via check-carga,
+também incluído em check. Critical interno sincroniza os dados na etapa atual;
+a carga não certifica isolamento ou desempenho STM. Os printf continuam ativos.
+
+Fontes: gcc-src-tm/; build: gcc-build/; testes: transaction_test/ na raiz do
+repositório (/usr/src/gcc-tm no contêiner). Localizar funções pelo nome e
+confrontar o inventário antes de alterar; preservar relatos datados como histórico.
 
 ## Integração com os agentes de acesso e abort
 
@@ -97,6 +237,12 @@ gimplificação converte a lista em chamadas de rastreamento. O lowering elimina
 o marcador preservando esse corpo instrumentado apenas para registro. Não
 apresentar este documento como evidência de que o protocolo já está implementado
 ou validado. Ao implementar, atualizar este parágrafo com o estado real.
+
+A ponte proprietária atual cria a tabela com destroy_policy=NULL, válido
+porque seus metadados ainda permanecem NULL. Antes de instalar metadados de
+reservas/valores privados na tabela global, definir e configurar seu destrutor
+na criação, antes da publicação. Não trocar o callback com usuários ativos nem
+copiar para produção a alteração direta de campos usada por testes white-box.
 
 ### Elementos fundamentais e responsabilidades
 
@@ -200,8 +346,9 @@ original para objetos transacionados, pois as escritas permanecem privadas;
 o abort ainda precisa limpar reservas, temporários e demais recursos da tentativa.
 
 As restrições e questões abertas nas seções seguintes fazem parte do contrato.
-Em particular, este resumo não resolve implicitamente leituras externas não
-listadas, exceções, aliases não analisáveis ou efeitos externos não suportados.
+Todos os acessos preexistentes exigem registro explícito; aliases não
+identificáveis e registros distintos sobrepostos são rejeitados. Exceções e
+efeitos externos são excluídos do primeiro subconjunto conforme o fechamento acima.
 
 ### Granularidade e conflitos
 
@@ -310,23 +457,31 @@ Restringir operações cujo efeito não pode ser descartado ou repetido com
 segurança: entrada/saída, arquivos, chamadas de sistema, chamadas externas sem
 suporte e criação de tasks. Diagnosticar casos identificáveis e documentar a
 pré-condição para chamadas indiretas ou outros casos não verificáveis. Não
-anunciar diagnóstico completo por análise apenas local. Alocação/liberação,
-atomics, volatile, locks do usuário e exceções exigem classificação explícita
-antes de serem admitidos; a política inicial não lhes concede suporte implícito.
+anunciar diagnóstico completo por análise apenas local. E/S, chamadas de sistema,
+locks do usuário, malloc/free do programa e exceções ficam fora inicialmente;
+atômicos e volatile também são excluídos pelos critérios de tipos. Alocação
+futura exigirá rastrear recursos e definir descarte ou liberação adiada.
 
-### Tipos suportados no protótipo
+### Tipos e identidade: decisões do usuário — 2026-10-28
 
-Aceitar objetos escalares comuns, incluindo ponteiros, e arrays/estruturas de
-tamanho conhecido compostos recursivamente desses tipos. Exigir tipo completo
-e tamanho conhecido para os objetos registrados. Inicialmente não suportar VLA,
-`volatile`, objetos atômicos nem classes C++ com operações especiais de cópia ou
-destruição que impeçam o tratamento como dados triviais. Não permitir escritas em objetos
-`const`, mesmo que a cópia privada seja mutável. Não remover qualificadores para
-contornar restrições da linguagem. Verificar recursivamente
-os componentes de agregados. Não inferir que toda classe C++ pode ser manipulada
-por cópia bruta; admitir agregados triviais apenas após verificar as propriedades
-necessárias segundo a linguagem. Tipos não contemplados exigem extensão explícita,
-não aceitação silenciosa.
+O subconjunto inicial de objetos transacionados admite escalares comuns,
+arrays e agregados com critérios restritos, completos e de tamanho conhecido.
+Validar recursivamente elementos e membros; não basta sizeof conhecido.
+Ficam inicialmente fora volatile, atômicos, VLA, unions, campos de bits,
+membros flexíveis e qualquer caso sem contrato específico. Escritas em objetos
+const são proibidas; preservar qualificadores, inclusive de componentes.
+
+Suporte a instâncias de classes é trabalho futuro, não uma exceção por
+trivialidade de cópia/destruição. Em C++, struct também define tipo de classe:
+não admitir suas instâncias implicitamente apenas por serem agregados triviais.
+Arrays de tipos excluídos e agregados com componentes excluídos também ficam
+fora. Ponteiros permanecem escalares: controlar o valor de um ponteiro para
+classe não significa oferecer suporte transacional à instância apontada.
+Referências C++ a objetos escalares/arrays admitidos continuam designando o
+objeto referido, sob as mesmas restrições.
+
+Essas são regras do primeiro subconjunto STM funcional. A aceitação atual pelo
+parser/rastreamento não comprova que os filtros semânticos já foram implementados.
 
 Listar um ponteiro registra o objeto ponteiro e seu valor, não a memória apontada.
 Para transacionar o objeto apontado, esse objeto precisa estar no conjunto listado
@@ -336,33 +491,87 @@ qualificadores durante a análise; emitir diagnóstico adequado ao caso rejeitad
 
 ### Aliases e chamadas de funções
 
-Suportar acessos diretos e aliases que o compilador consiga resolver para um
-objeto registrado. Um alias deve usar a mesma entrada e a mesma cópia privada,
-sem acessar a memória original por um caminho alternativo. Campos e elementos
-usam a identidade do objeto inteiro e deslocamentos dentro de sua cópia privada.
-O suporte não exige uma análise perfeita de ponteiros: restringir aliases não
-resolvidos, diagnosticar casos identificáveis e documentar os demais limites.
-Não afirmar cobertura de aliases arbitrários nem busca de intervalos oferecida
-pela hash por igualdade exata.
+Suportar acessos diretos e aliases cuja identidade canônica o compilador consiga
+estabelecer. O alias deve usar a mesma entrada e cópia privada, sem caminho
+alternativo de acesso comum ao objeto registrado. Para vetor[i] com vetor
+canônico conhecido, i pode ser dinâmico: calcular índice/endereço uma única vez,
+sem overflow, e validar os limites em execução antes do acesso.
 
-Admitir chamadas comprovadamente livres de efeitos incompatíveis com repetição
-e chamadas a versões explicitamente preparadas para execução transacional. Uma
-função que acessa objetos registrados precisa propagar o contexto ativo e usar
-o protocolo de reservas e cópias privadas, inclusive em acessos por argumentos.
-Uma classificação `pure`/`const` isolada não prova que leituras de objetos
-transacionados vejam as cópias privadas. Não tratar inlining como prova de
-segurança: os acessos resultantes ainda precisam ser instrumentados.
+Rejeitar acessos por ponteiros cuja identidade não possa ser estabelecida.
+Não fazer fallback silencioso à memória comum. Leituras e escritas em objetos
+preexistentes exigem registro explícito; ponteiro desconhecido não autoriza
+acesso externo comum. Resolução dinâmica de
+identidade exige contrato adicional de intervalos/sobreposição e fica fora da
+versão inicial; a hash por igualdade exata não fornece esse mecanismo.
 
-Chamadas externas ou indiretas sem suporte ficam restritas. Definir mecanismo
-explícito de identificação/geração das versões transacionais antes de admiti-las;
-esta especificação não inventa atributo ou ABI já existente. Funções preparadas
-também obedecem às restrições sobre efeitos externos, tipos, aliases e reinício.
+Registros distintos sobrepostos são proibidos inicialmente, inclusive quando
+usados por contextos diferentes. Campos/elementos de um agregado registrado usam
+sua entrada e deslocamentos, com conflito no objeto inteiro. Repetir o mesmo
+objeto canônico/mesma extensão não cria registro distinto: mantém deduplicação e
+referências conforme a camada. Não confundir colisão de bucket com sobreposição.
+
+A integração precisa impor a proibição e diagnosticar os casos fora do subconjunto;
+o código atual da hash não verifica intervalos de entradas com chaves diferentes.
+Não anunciar que essa validação está pronta nem introduzir busca dinâmica de
+intervalos implicitamente. Se não for possível garantir a identidade e a ausência
+de registros distintos sobrepostos no caso admitido, restringi-lo antes do acesso.
+
+### Versões transacionais e propagação de falha
+
+Decisão do usuário:
+
+Gerar versões internas transacionais das funções chamadas, com contexto e status
+explícitos. Preservar a assinatura pública original, inclusive seu retorno e
+uso fora da transação. A transformação deve alcançar a cadeia de chamadas
+preparadas, não somente o corpo léxico da diretiva ou funções inline.
+
+```text
+status = função_transacional(contexto, argumentos, resultado)
+se status falhou:
+    seguir para o epílogo de falha
+usar resultado
+```
+
+A versão interna retorna status e só preenche o resultado no epílogo de sucesso.
+Se falhar, o armazenamento de resultado permanece inalterado: não publicar
+resultado parcial nem um valor fictício; o chamador não o lê nem
+continua o caminho normal. Funções sem resultado também propagam status, sem
+necessidade de fabricar um valor de retorno. OK/CONFLICT/INVALID são conceitos
+semânticos: seu enum, ABI gerada e traduções entre estados de acesso/ciclo de
+vida ainda precisam de definição técnica, sem pressupor igualdade numérica.
+
+Passar o mesmo contexto da tentativa pela cadeia, preservando flat nesting.
+Uma função chamada ou região interna não confirma, reinicia ou descarta a
+tentativa externa por conta própria. Cada chamada e operação instrumentada deve
+ter seu status verificado antes de consumir resultado ou executar efeitos
+normais posteriores. Na falha, seguir ao epílogo da função, executar somente
+cleanups suportados e propagar a causa até o controle externo, sem consumir o
+contexto prematuramente; manter INVALID dominante conforme o contrato de falha.
+O controle externo faz o descarte único depois dos cleanups; somente CONFLICT
+permite repetir todo o bloco externo. Não usar setjmp/longjmp nem retornar
+valores fictícios como canal implícito de erro.
+
+Chamadas indiretas ou externas sem preparação ficam inicialmente restritas.
+Pure/const não prova que uma função observa os valores privados de objetos
+registrados; não autoriza chamar uma versão comum no lugar da transacional.
+Inlining só é válido com verificação/instrumentação dos acessos resultantes,
+não como prova isolada de segurança. Nas versões preparadas, todos os acessos
+a objetos preexistentes também exigem registro explícito.
+
+Identificação das versões, nomes/linkage, chamadas entre unidades de tradução,
+representação de resultados por referência e detalhes da ABI gerada ainda
+precisam ser definidos antes da integração. Não inventar um atributo já existente
+ou exportar novos símbolos GOMP por esta decisão documental. Exceções e
+cleanups do usuário foram rejeitados no subconjunto inicial; seu suporte futuro
+exige protocolo próprio para tentativa condenada. Efeitos externos estão
+excluídos do primeiro subconjunto conforme o fechamento acima. Nenhuma versão transacional ou transformação de chamadas foi
+implementada por esta atualização dos agentes.
 
 ### Estado restaurado entre tentativas
 
-Toda escrita em objeto cuja vida começou antes da transação externa deve atingir
+Toda leitura ou escrita em objeto cuja vida começou antes da transação externa deve atingir
 um objeto listado no contexto compartilhado, seja pela lista externa ou por uma
-lista interna já processada. Rejeitar escritas identificáveis em objetos externos
+lista interna já processada. Rejeitar acessos identificáveis em objetos externos
 não listados; não ampliar automaticamente o conjunto transacionado. Uma lista
 interna não autoriza retroativamente um acesso anterior ao seu processamento.
 Aplicar a regra também a aliases, funções chamadas e efeitos indiretos.
@@ -382,30 +591,93 @@ entrada externa e reconstruir os escopos temporários, não apenas repetir a
 instrução que encontrou conflito. Suporte a destrutores ou cleanups com efeitos
 externos não decorre dessa exigência e permanece restrito.
 
-### Pontos de semântica ainda abertos: não preencher implicitamente
+### Registro explícito de leituras e escritas — decisão atual
 
-As regras acordadas restringem escritas externas à lista, mas não determinam o
-tratamento de leituras de objetos externos não listados. É necessário decidir
-se serão proibidas, admitidas como leituras comuns fora das garantias
-transacionais ou limitadas a dados imutáveis. Essa escolha afeta consistência e
-repetibilidade. Até ser decidida, não prometer consistência transacional para
-essas leituras nem instrumentá-las como registro automático.
+Todos os acessos a objetos preexistentes exigem registro explícito já realizado,
+inclusive leituras nas funções preparadas. A forma sem lista não infere objetos;
+listas internas só autorizam acessos posteriores ao registro. Temporários privados
+criados na tentativa seguem seu contrato de recriação e não escape.
+Objeto ausente em newtm_read/write é INVALID, nunca acesso comum como fallback.
+A permissão anterior para ler objetos externos não listados foi substituída.
 
-A forma sem lista e o uso de objetos antes de uma lista interna também precisam
-ser coerentes com essa decisão. A forma sem lista não autoriza automaticamente
-transacionar todos os objetos do corpo.
+### Representação dos valores privados — decisão do usuário
 
-A expressão “classes triviais” ainda precisa de critérios verificáveis no
-front-end. Antes da integração, fixar a matriz de suporte para unions, campos de
-bits, membros flexíveis, extensões de vetores e agregados com ponteiros para seus
-próprios subobjetos. Casos não contemplados são restritos; não ampliar o conjunto
-somente porque `sizeof` é conhecido. Buffers precisam de alinhamento suficiente
-e de uma estratégia de acesso que respeite aliasing e vida útil C/C++.
+Escalares usam uma representação privada simples, com controle de validade e
+modificação do valor. Agregados usam armazenamento privado acompanhado de
+faixas válidas e faixas modificadas. Uma faixa válida contém bytes já obtidos
+sob a reserva apropriada ou produzidos por uma escrita da tentativa; toda faixa
+modificada deve ser válida. A organização escolhida é usar listas de intervalos válidos e modificados
+com buffer de extensão completa, preenchido sob demanda; campos e algoritmos
+de manutenção dos intervalos ainda precisam de especificação.
 
-Exceções do usuário não foram equiparadas a conflito. Definir separadamente se
-serão rejeitadas ou admitidas com descarte e propagação segundo as regras de
-bloco estruturado. Nunca reiniciar indefinidamente uma exceção como se fosse
-conflito nem confirmar durante seu desenrolamento.
+Ler um campo/elemento deve obter somente as partes solicitadas ainda ausentes
+da visão privada, sob a reserva necessária, preservando escritas anteriores da
+própria tentativa. Escrever deve disponibilizar e marcar como válidos e
+modificados os bytes escritos, sem exigir leitura prévia desses bytes nem
+inicialização/acesso integral do agregado. Uma leitura-modificação-escrita
+continua exigindo uma leitura válida da parte usada no cálculo. Isso não torna
+válida uma leitura de valor não inicializado no programa nem autoriza interpretar
+padding, acessar fora do objeto ou contornar as restrições dos tipos.
+
+O commit publica somente faixas modificadas, preservando as demais partes do
+objeto; o descarte elimina os buffers e o controle de faixas sem publicá-los.
+As faixas não criam identidades ou reservas independentes: o conflito continua
+associado ao objeto canônico registrado. Alinhamento, vida útil e aliasing devem
+ser respeitados na implementação dos temporários e transportes.
+
+Buffers privados são internos ao runtime/compilador e nunca aparecem como
+endereços do programa. `&x` continua sendo o endereço lógico original de `x`;
+campos e elementos preservam seus endereços lógicos e deslocamentos. A
+instrumentação redireciona os acessos admitidos à visão privada sem trocar essa
+identidade nem habilitar acessos por ponteiros de identidade desconhecida.
+Esses são contratos da futura STM funcional, ainda não implementados pelos stubs.
+
+### Semânticas que ainda precisam de decisão
+
+Tipos iniciais e aliases/sobreposição já estão definidos acima. Instâncias de
+classes ficam explicitamente para trabalho futuro. A aplicação desses filtros,
+o mapeamento canônico e os diagnósticos ainda precisam de implementação na
+integração funcional; distinguir decisão estabelecida de validação executada.
+A propagação entre funções foi definida por versões internas com contexto,
+status explícito e resultado só em sucesso. A ABI gerada ainda precisa de
+especificação técnica. Exceções/cleanups do usuário foram rejeitados
+inicialmente; sua extensão é futura, com protocolo para tentativa condenada.
+A representação privada foi definida acima: escalares simples e agregados com
+faixas válidas/modificadas, preservando endereços lógicos. O layout concreto,
+alinhamento ainda precisam de detalhamento técnico. Efeitos externos e o destino
+de INVALID foram definidos no fechamento do subconjunto acima. Não pressupor
+cópia integral universal nem descoberta de intervalos pela hash.
+
+### Exceções e cleanups do usuário — decisão inicial
+
+Rejeitar inicialmente exceções e cleanups do usuário no subconjunto STM
+funcional, inclusive nas funções preparadas chamadas durante a tentativa.
+Não admitir objetos/temporários que exijam destrutores do usuário, handlers de
+cleanup ou chamadas sem garantia de compatibilidade com essa restrição.
+A aceitação atual do parser/rastreamento e seus testes de desenrolamento não
+significam que esses casos sejam suportados pela futura STM funcional.
+
+A limpeza interna do runtime continua obrigatória: retirar reservas e
+participações semânticas, liberar referências/buffers/contexto e devolver a
+lease do proprietário somente depois dos recursos dependentes. Destrutores
+internos de metadados de política continuam sujeitos a seus contratos; não são
+cleanups de objetos do usuário e não ficam dispensados por esta restrição.
+
+Uma tentativa condenada recusa novos acessos normais via read/write. Não usar
+o caminho normal dessas primitivas em destrutores/cleanups nem relaxar seus
+guards para aparentar suporte. Cleanup interno do protocolo trabalha sobre
+seus próprios recursos e metadados, sem reabrir a tentativa ao código do usuário.
+Exceções do usuário nunca viram CONFLICT, não autorizam retry e nunca provocam
+commit durante desenrolamento. O finally de rastreamento não pode ser convertido
+em confirmação incondicional.
+
+Suporte a exceções/cleanups do usuário fica como trabalho futuro: definir a visão
+de dados acessível aos destrutores com tentativa condenada, seu protocolo de
+acesso separado, ordem de limpeza, vida útil dos buffers/contexto, falhas no
+próprio cleanup e propagação da exceção original. Só então ampliar os casos
+admitidos; não tratar essas decisões como autorização para implementá-los agora.
+A aplicação dos diagnósticos ainda precisa de implementação; esta atualização
+registra a semântica, sem alterar o compilador.
 
 Tasks, suspensão e sincronizações coletivas dentro da transação exigem restrição
 explícita: uma barreira dentro de código que pode ser repetido por apenas uma
@@ -416,7 +688,7 @@ cenário pretendido; isso não autoriza herança automática do contexto por thr
 
 ## Arquivos e organização
 
-Implementar em C, seguindo as convenções locais da libgomp:
+Manter a implementação C existente, seguindo as convenções da libgomp:
 
 - `libgomp/newtm-hash.c`: implementação da tabela, cálculo de hash,
   encadeamento, alocação, sincronização e contagem de referências.
@@ -431,8 +703,8 @@ Implementar em C, seguindo as convenções locais da libgomp:
   as decisões e limitações da implementação efetivamente entregue.
 
 Usar prefixo `newtm_hash_` nas primitivas e tipos da tabela. Pesquisar colisões
-antes de introduzir nomes. Acrescentar o fonte a `libgomp/Makefile.am` e tratar
-os arquivos gerados segundo a infraestrutura e versão de ferramentas do projeto,
+antes de introduzir nomes. Os fontes já integram libgomp/Makefile.am; preservar
+sua inclusão e tratar os arquivos gerados segundo a infraestrutura e versão de ferramentas do projeto,
 sem regenerações amplas desnecessárias. Examinar as regras locais para incluir
 os cabeçalhos na distribuição. Reutilizar mutexes e mecanismos de alocação e
 falha da libgomp, sem introduzir dependência direta de pthread em código comum.
@@ -473,14 +745,16 @@ a deduplicação não pode ocultar essa verificação.
 
 ## Interface e primitivas
 
-Assinaturas propostas; usar `size_t` e os qualificadores apropriados no
-cabeçalho. Definir estados `NEWTM_HASH_OK`, `NEWTM_HASH_INVALID`,
+Assinaturas internas implementadas; preservar `size_t` e os qualificadores
+do cabeçalho. O enum já define os estados `NEWTM_HASH_OK`, `NEWTM_HASH_INVALID`,
 `NEWTM_HASH_NOT_FOUND`, `NEWTM_HASH_SIZE_MISMATCH`, `NEWTM_HASH_BUSY`,
 `NEWTM_HASH_OVERFLOW` em `enum newtm_hash_status`.
 Saídas por ponteiro ficam nulas nas falhas, quando aplicável. Falhas não deixam
-inserções ou incrementos parciais. Para esta proposta, usar `gomp_malloc` e
-`gomp_malloc_cleared`, cujo contrato local encerra o processo via `gomp_fatal`
-em falta de memória; portanto não oferecer `NEWTM_HASH_NO_MEMORY`. Verificar
+inserções ou incrementos parciais. Falta de memória permanece fatal via
+`gomp_fatal`, sem `NEWTM_HASH_NO_MEMORY`. Para não diagnosticar sob locks, a hash
+usa malloc/calloc diretamente em um helper sem E/S para a tabela e malloc sob
+o bucket para entradas; uma falha libera os locks antes de gomp_fatal. O helper
+retorna NULL apenas internamente, sem criar estado recuperável na API. Verificar
 overflows antes de alocar. Uma política recuperável de alocação exigirá revisão
 explícita desse contrato, sem depender de um estado que nunca é retornado.
 Funções que retornam estado rejeitam tabela nula quando recebem uma tabela,
@@ -500,15 +774,131 @@ enum newtm_hash_status newtm_hash_destroy (struct newtm_hash_table *table);
 `newtm_hash_create` aloca uma tabela vazia e inicializa o mutex de cada bucket. O serviço
 transacional global chama esta função com `NEWTM_HASH_DEFAULT_BUCKETS`, definido
 como 1024. A primitiva rejeita capacidade zero e verifica overflow da alocação.
-A função hash deve aceitar qualquer capacidade positiva, não exigir potência
-de dois silenciosamente. Não descartar os bits baixos de endereços sem avaliar
-objetos com alinhamentos pequenos; misturar os bits antes de selecionar o bucket.
+A redução aceita qualquer capacidade positiva com alocação representável.
+A mistura escolhida é fmix32/fmix64, conforme a decisão detalhada abaixo.
 
 `newtm_hash_destroy` libera buckets, tabela e todos os mutexes somente se não houver
 entradas vivas; caso contrário retorna `NEWTM_HASH_BUSY`. Exige ausência de
 operações concorrentes: os mutexes dos buckets não podem proteger acessos
 que começam depois de ela ser destruída. A instância global dura até o término
 do runtime; não destruir a tabela a cada saída de transaction.
+
+Quiescência para `newtm_hash_destroy` é uma obrigação externa do chamador:
+impedir o início de novas operações e aguardar a conclusão de todas as operações
+em andamento, incluindo visitas e destruidores de metadados, mantendo essa
+exclusão até o retorno. A primitiva não estabelece esse protocolo. Referências
+retidas, mas ociosas durante a chamada, são permitidas: suas entradas causam
+BUSY, sem consumo de referências ou destruição parcial. Após BUSY, o chamador
+pode encerrar a exclusão e retomar o uso normal da tabela.
+
+`newtm_hash_count() == 0` é somente uma fotografia de ausência de entradas
+encadeadas. Não impede novas chamadas, não identifica usuários que ainda podem
+acessar a tabela e não espera por uma última release que já retirou a entrada,
+mas ainda executa seu destrutor fora do mutex. Não constitui autorização para
+destruir a tabela. OK de destroy exige, separadamente, quiescência externa e
+ausência de entradas.
+
+
+### Admissão e participações da camada proprietária
+
+A tabela global da ponte é protegida por um controle de vida útil separado das
+nove primitivas: OPEN -> CLOSING -> CLOSED, irreversível. Estado, ponteiro,
+contagem de participações e flag de coordenador são protegidos pelo mutex global.
+Esse controle estático e seu mutex sobrevivem à tabela; não destruir o mutex no
+finalizador enquanto chamadas tardias ainda podem consultá-lo.
+
+Três serviços internos ocultos em newtm-hash.h, sem nova ABI GOMP:
+
+- newtm_hash_owner_acquire recebe uma lease zerada/inativa. Em OPEN, inicializa
+  a tabela se necessário e registra uma participação sob o mesmo mutex antes
+  de expor o ponteiro. A participação já cobre o log create fora do lock.
+  OK entrega tabela emprestada; BUSY rejeita CLOSING, INVALID rejeita CLOSED,
+  NULL ou lease já ativa; OVERFLOW não modifica a contagem. Falhas em lease
+  inativa deixam table NULL. OOM permanece fatal fora do lock.
+- newtm_hash_owner_release consome exatamente uma participação ativa depois de
+  terminar operações, referências, callbacks e limpeza. OK zera a lease;
+  INVALID não consome participação em argumentos inativos/incompatíveis.
+  Copiar a lease não cria participação; transferências e uso entre threads
+  exigem sincronização externa e propriedade exclusiva. Não usar table depois.
+- newtm_hash_owner_close fecha a admissão e tenta concluir sem aguardar drenagem.
+  BUSY mantém CLOSING se há participações, coordenador já atuando ou entradas
+  residuais; nunca remove à força, reabre ou libera parcialmente. O coordenador
+  pode finalizar/join dos usuários e repetir a chamada. Se não há usuários,
+  designa um único destruidor sob lock, chama destroy fora dele e só publica
+  CLOSED/ponteiro NULL depois de OK. Sem tabela previamente criada, fecha sem
+  alocar. CLOSED repetido retorna OK sem nova destruição.
+
+Não é um algoritmo lock-free: pode aguardar brevemente o mutex de controle,
+mas não espera participações, não faz polling interno nem segura recursos
+esperando usuários. Não existe garantia de término se um usuário abandona sua
+lease. BUSY após drenagem por entradas residuais indica consumidor fora do
+protocolo ou referência perdida, não autorização para remoção forçada.
+
+O contexto externo da ponte possui uma participação, não uma por objeto ou
+nível aninhado. Begin externo solicita admissão; novo contexto recusado é fatal
+fora do lock, pois a ABI void não oferece retorno de falha. Contextos já
+admitidos podem aninhar/register/end em CLOSING. Register usa a tabela da lease;
+end interno só reduz profundidade. End externo libera entradas e metadados,
+limpa TLS, libera o contexto e só então devolve a participação transferida para
+armazenamento local. Isso cobre a última release mesmo depois de retirar sua
+entrada do bucket e enquanto executa o destrutor de política.
+
+Consumidores diretos da tabela global devem manter uma lease durante TODO o
+intervalo de uso, inclusive referências retidas entre chamadas; não podem
+chamar destroy na tabela emprestada. O proprietário é seu único destruidor.
+Tabelas independentes criadas pela primitiva create continuam sob quiescência
+externa do próprio chamador. Nenhum dos mecanismos torna seguros ponteiros
+pendentes ou cópias de lease tratadas como participações independentes.
+
+O finalizador automático faz uma única tentativa não bloqueante de close.
+Em BUSY, mantém tabela/controle vivos e não espera, não força limpeza nem chama
+gomp_fatal recursivamente; o processo recupera a memória ao terminar. Se apenas
+solicitar fechamento e continuar a execução, o coordenador explícito pode
+repetir close depois de os usuários terminarem. O mutex de controle permanece
+válido após CLOSED para rejeitar acessos tardios. Isso não protege código
+removido por dlclose: descarregar a biblioteca exige impedir externamente toda
+execução atual ou futura dela, inclusive callbacks.
+
+Count zero continua sem provar quiescência. Fechamento exige ausência de
+participações, e não observação da quantidade de entradas. Diagnósticos e logs
+permanecem fora dos mutexes de controle e buckets; não esperar close segurando
+stdio ou recursos de que os usuários precisam para concluir.
+
+### Decisão de mistura de endereços
+
+Para a etapa operacional, usar os finalizadores `fmix32` e `fmix64` do
+[MurmurHash3 original](https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp).
+Converter a chave para `uintptr_t` e selecionar por `UINTPTR_MAX`:
+
+- `UINTPTR_MAX == UINT32_MAX`: `x ^= x >> 16; x *= 0x85ebca6b;`
+  `x ^= x >> 13; x *= 0xc2b2ae35; x ^= x >> 16;`.
+- `UINTPTR_MAX == UINT64_MAX`: `x ^= x >> 33; x *= 0xff51afd7ed558ccd;`
+  `x ^= x >> 33; x *= 0xc4ceb9fe1a85ec53; x ^= x >> 33;`.
+
+Usar operações e constantes sem sinal na largura selecionada, com produtos
+módulo 2^32 ou 2^64 e deslocamentos menores que a largura. Não selecionar por
+`unsigned long`, não descartar bits inferiores por alinhamento e não truncar o
+resultado antes da redução. O bucket é `x % bucket_count`, para qualquer
+capacidade positiva com alocação representável; máscara não substitui o módulo.
+`acquire` e `lookup_acquire` usam a mesma função interna, sem estado ou semente.
+A comparação de chaves permanece por endereço exato. A entrada guarda o índice
+imutável calculado, utilizado por `release` e `entry_visit`.
+
+Larguras de `uintptr_t` diferentes de 32/64 ainda não têm algoritmo selecionado.
+A implementação operacional deverá diagnosticá-las na compilação, sem truncar
+silenciosamente. Suporte adicional exige extensão explícita; isso não altera
+os corpos ainda não implementados. A mistura já é usada por acquire/lookup.
+
+A escolha foi informada por simulação de 720 combinações: 32.768 endereços
+numéricos distintos por sequência, larguras 32/64, três bases por largura,
+incrementos 1/2/8/64/4096/65536 e capacidades 1/3/1009/1024/1536. Os finalizadores
+ocuparam todos os buckets nos casos de capacidade maior que um examinados, com
+maior carga inferior a duas vezes a média. Módulo direto e multiplicação simples
+concentraram endereços alinhados para capacidades potência de dois. Esses dados
+são evidência exploratória, não garantia universal, benchmark ou teste da
+implementação C. A validação permanente deve cobrir esses padrões, bases que
+exercitem bits superiores e identidade correta mesmo com colisões, sem exigir
+uma distribuição perfeitamente uniforme. Não há promessa criptográfica.
 
 ### Inserção ou aquisição
 
@@ -526,6 +916,49 @@ tamanho zero e overflow de contagem. Tamanhos diferentes para a mesma chave
 retornam `NEWTM_HASH_SIZE_MISMATCH`; não substituir silenciosamente o tamanho.
 Esse caso deverá ser revisto se a política futura admitir registros de subobjetos
 com mesmo endereço inicial e extensões diferentes.
+
+### Alocação inicial e possível otimização de acquire
+
+A implementação inicial aloca a entrada ausente com o mutex do bucket adquirido.
+Isso simplifica a inserção e mantém busca, validação e publicação em uma única
+seção crítica. Usa malloc sem diagnóstico implícito: se falhar, desbloquear antes
+de gomp_fatal, sem alterar lista/referências/contadores nem publicar out. OOM
+continua fatal. Não é necessário antecipar a alocação nesta etapa.
+
+Depois de a manipulação da tabela estar operacional e validada, medições de
+contenção poderão justificar uma otimização que aloque fora do mutex. Essa
+alternativa exigirá nova busca sob lock, pois outra thread pode inserir a chave
+nesse intervalo, e descarte correto de candidatos não utilizados. Deverá
+preservar unicidade da entrada encadeada por chave, verificação de tamanho,
+limites dos contadores, propriedade das referências e ausência de alterações
+parciais nas falhas. Uma aquisição existente não deve passar a depender de uma
+alocação desnecessária que possa encerrar o processo. Trata-se de sugestão de
+otimização futura, não de requisito para concluir a implementação inicial.
+
+### Restrição de logs na implementação operacional
+
+Decisão do usuário: manter os printf/fflush para depuração durante a
+implementação das primitivas. Preservar os formatos usados pelos verificadores;
+qualquer mudança necessária exige atualização conjunta dos testes. Nenhum printf/fflush ou outra E/S de diagnóstico pode ocorrer sob mutex de
+bucket, inclusive em callbacks de visita e enquanto count mantém vários locks.
+Se preservados, capturar somente dados necessários e seguros durante a seção
+crítica e imprimir após desbloquear. Não desreferenciar entradas já liberadas
+para imprimir nem acessar metadados mutáveis sem proteção. A ordem das mensagens
+entre threads não representa necessariamente a ordem das operações na hash.
+Logs da ponte também respeitam a restrição, inclusive o mutex global de
+inicialização. A ponte aloca/inicializa/publica com helper sem E/S sob esse mutex
+e imprime o mesmo registro create depois de desbloquear. Falhas de tabela ou
+buckets não publicam estado parcial; seus diagnósticos fatais também ocorrem
+após unlock. Em concorrência, um registro acquire de outra thread pode aparecer
+antes do log create já publicado; a ordem textual não comprova ordem causal.
+
+Alterações de mensagens exigem atualização conjunta de testes e documentação.
+`transaction_test/verificar.py` conta mensagens newtm_hash_* e verifica sua
+posição no exemplo aninhado; suas expectativas atuais não podem ser mantidas
+sem revisão se o rastreamento mudar. A validação operacional deve verificar
+resultados, referências e callbacks, não apenas mensagens. Os logs próprios dos
+stubs de acesso/ciclo de vida têm contrato separado e não são removidos como
+consequência desta decisão sobre a hash.
 
 ### Consulta com aquisição de referência
 
@@ -555,6 +988,38 @@ pode usar o ponteiro depois da chamada sem outra referência válida. Entrada de
 outra tabela, dupla liberação e uso depois de liberar são erros de programação;
 verificações de depuração podem diagnosticá-los, sem prometer validar ponteiros
 já liberados. Não expor remoção forçada de uma entrada ainda referenciada.
+
+Cada sucesso de acquire ou lookup_acquire entrega uma referência que exige
+exatamente uma release; copiar o ponteiro não incrementa o contador e falhas não
+entregam referências a liberar. A entrada deve pertencer à tabela, continuar
+encadeada e ter contador positivo no início válido da liberação.
+
+O chamador deve retirar previamente as participações/reservas sustentadas pela
+referência consumida, sem retirar as dos outros participantes com referências
+independentes. Na última referência, nenhuma participação/reserva pode permanecer
+dependente dessa entrada. A referência preserva a entrada, não o objeto do programa.
+
+TABLE deve permanecer viva até o retorno completo, inclusive durante o callback
+e free executados depois de desbloquear. Destroy precisa aguardar essa operação
+inteira, e não apenas a retirada da lista. Ausência de entradas ou count zero
+não demonstram que a limpeza terminou.
+
+Um decremento positivo garante somente que esta chamada não destrói a entrada.
+Outra thread pode consumir a última referência e liberá-la antes do retorno.
+O chamador só pode acessar a entrada depois de release se possuir outra
+referência retida independentemente. Se o decremento produzir zero, esta chamada
+conclui a retirada, a destruição dos metadados não nulos e a liberação da entrada
+antes de retornar, sem mutex de bucket adquirido.
+
+Uma nova entrada para o mesmo endereço pode existir durante a destruição dos
+metadados da geração retirada. O destrutor atua apenas nos recursos dessa
+geração, retorna normalmente e não reentra na tabela, acessa a entrada retirada,
+altera o objeto do programa ou interfere em outra geração. Exceção/longjmp
+violariam a obrigação de concluir a liberação. Não existe rollback do callback.
+
+NULL, tabela errada, contador zero, dupla liberação ou ponteiros pendentes são
+violações de contrato, sem resultado recuperável ou diagnóstico garantido.
+
 
 ### Consulta aos dados imutáveis
 
@@ -620,7 +1085,8 @@ necessidade demonstrada.
 
 ## Pré e pós-condições consolidadas da hash
 
-Estes contratos são da implementação funcional futura, não dos stubs atuais.
+As nove primitivas já executam estes contratos, incluindo contagem consistente
+com soma saturada. Isso não implementa reservas nem semântica transacional.
 Toda pós-condição de preservação significa ausência de alteração causada pela
 chamada; outras threads podem continuar alterando a tabela. Nenhum retorno
 normal deixa mutex adquirido pelo chamador. Endereços de objetos são chaves:
@@ -635,16 +1101,16 @@ pendentes não são detectáveis com segurança: não prometer validá-los.
 | Primitiva | Pré-condições para sucesso | Pós-condições em sucesso | Falha/violação |
 | --- | --- | --- | --- |
 | `newtm_hash_create` | out válido; capacidade positiva representável; destrutor válido ou NULL sob contrato de metadados sempre nulos. | OK; *out é tabela nova, vazia, com capacidade imutável e todos os mutexes inicializados; chamador assume a propriedade da tabela. | INVALID para out nulo/capacidade zero; OVERFLOW antes de alocar; *out=NULL quando possível; nenhuma tabela parcialmente publicada. Falta de memória é fatal. |
-| `newtm_hash_destroy` | Tabela válida e quiescência de todos os usuários, incluindo callbacks e destruidores; não basta observar contagem zero. | OK somente sem entradas; todos os recursos estruturais liberados; table e referências ao seu armazenamento tornam-se inválidos. | INVALID para NULL; BUSY deixa a tabela inteira utilizável, sem destruição parcial. Destruição concorrente é violação, não protegida pelos mutexes. |
+| `newtm_hash_destroy` | Tabela válida; novas operações impedidas e operações/visitas/destruidores em andamento concluídos, com exclusão mantida até retornar. Referências ociosas são permitidas e causam BUSY; count zero não estabelece quiescência. | OK somente sem entradas; todos os recursos estruturais liberados; table e referências ao seu armazenamento tornam-se inválidos. | INVALID para NULL; BUSY preserva tabela e referências, sem destruição parcial; uso pode ser retomado após encerrar a exclusão externa. Destruição concorrente é violação, não protegida pelos mutexes. |
 | `newtm_hash_acquire` | Tabela válida; chave não nula; size positivo; out válido; nenhuma destruição concorrente. | OK; *out mantém exatamente uma nova referência do chamador; entrada nova tem chave/tamanho imutáveis e metadados NULL, ou a mesma geração existente é reutilizada. | INVALID, SIZE_MISMATCH ou OVERFLOW conforme o argumento/contador; sem inserção ou incremento parcial; referências anteriores preservadas. Alocação fatal não finge retorno recuperável. |
 | `newtm_hash_lookup_acquire` | Tabela válida; chave não nula; out válido; nenhuma destruição concorrente. | OK; uma nova referência a entrada existente com a chave exata; não insere nem muda tamanho/metadados. | NOT_FOUND se ausente; INVALID para nulos; OVERFLOW sem incrementar. *out=NULL; nenhuma referência adquirida na falha. |
-| `newtm_hash_release` | Tabela e entrada correspondentes; chamador possui a referência liberada; reservas/participações sustentadas por ela já retiradas; nenhum uso posterior dessa referência. | Exatamente uma referência consumida. Se a última, entrada desligada sob lock, destrutor não nulo executado se houver metadados e entrada liberada fora do lock. Caso contrário, entrada continua viva. | Sem retorno de estado. NULL, tabela errada, dupla liberação ou reserva ainda sustentada são violações; não tratar como sucesso ou tentar validar memória já liberada. |
+| `newtm_hash_release` | Tabela/entrada vivas e correspondentes; entrada encadeada, contador positivo e referência do chamador obtida por aquisição bem-sucedida; participações/reservas sustentadas por ela já retiradas. Tabela viva até retorno completo, inclusive callback/free. | Consome exatamente uma referência. Se zero, desliga sob lock e conclui destrutor/metadados/entrada fora dele antes de retornar. Se positiva, não destrói nesta chamada, mas outra thread pode destruir antes do retorno; acesso posterior exige outra referência independente. Nenhum mutex retido. | void; NULL, tabela errada, contador zero, dupla liberação, ponteiro pendente ou reserva ainda sustentada são violações sem resultado recuperável ou diagnóstico garantido. Count zero não autoriza destroy durante a limpeza. |
 | `newtm_hash_entry_address` | Entrada válida e referência retida pelo chamador durante a consulta. | Retorna a chave imutável; não adquire/consome referência nem estende a vida do objeto do programa. | Sem valor sentinela de erro no contrato funcional; argumento inválido é violação. |
-| `newtm_hash_entry_size` | Entrada válida e referência retida pelo chamador durante a consulta. | Retorna tamanho imutável positivo; não altera estado ou referências. | Sem retorno de erro; zero dos stubs não é resposta funcional válida. |
-| `newtm_hash_entry_visit` | Tabela/entrada correspondentes, referência retida, callback não nulo, argument válido para esse callback; fora de callback/destrutor da mesma tabela. | Callback chamado uma vez sob mutex do bucket; alterações dos metadados tornam-se visíveis pela sincronização; referência do chamador preservada e lock liberado antes de retornar. | Sem estado estrutural de erro; resultado da política via argument. Não há rollback automático das alterações do callback. Violação de pré-condição não é conflito transacional. |
-| `newtm_hash_count` | Tabela válida, sem destruição concorrente; chamada fora de visit/destrutor e sem mutex de bucket já retido. | Número de entradas em uma fotografia consistente, saturado em SIZE_MAX; nenhum contador/referência alterado; todos os locks liberados. | Sem retorno de erro; NULL é violação. Resultado pode mudar após soltar os locks; não prova quiescência para destroy. |
+| `newtm_hash_entry_size` | Entrada válida e referência retida pelo chamador durante a consulta. | Retorna tamanho imutável positivo; não altera estado ou referências. | Sem retorno de erro; zero não é sentinela funcional prevista. |
+| `newtm_hash_entry_visit` | Tabela/entrada correspondentes, referência retida, callback não nulo, argument válido para esse callback; fora de callback/destrutor da mesma tabela; cumprir restrições de espera, locks, retorno normal e propriedade descritas abaixo. | Callback chamado uma vez sob mutex do bucket; alterações dos metadados tornam-se visíveis pela sincronização; referência do chamador preservada e lock liberado antes de retornar. Slot não escapa; ponteiros copiados não mantêm proteção e exigem protocolo próprio de vida útil/sincronização para uso posterior. | Sem estado estrutural de erro; resultado da política via argument. Não há rollback automático das alterações do callback. Violação de pré-condição não é conflito transacional. |
+| `newtm_hash_count` | Tabela válida, sem destruição concorrente; chamada fora de visit/destrutor e sem mutex de bucket já retido. | Número de entradas em uma fotografia consistente, saturado em SIZE_MAX; nenhum contador/referência alterado; todos os locks liberados. | Sem retorno de erro; NULL é violação. Resultado pode mudar após soltar os locks; zero não exclui novas operações, usuários da tabela ou destruidores de entradas já retiradas e não autoriza destroy. |
 
-### Contratos dos callbacks concebidos
+### Contratos dos callbacks operacionais
 
 `newtm_hash_visit_fn`: pré-condições — chave/tamanho válidos, slot policy_data
 pertencente a entrada retida, mutex do bucket já adquirido pela hash, argument
@@ -652,8 +1118,12 @@ sob contrato do chamador. Pós-condições — slot continua NULL ou contém met
 válidos de propriedade da entrada; metadados substituídos foram corretamente
 liberados/transferidos; callback retorna normalmente sem liberar o mutex,
 consumir referência ou guardar o endereço do slot para uso posterior. Não
-reentrar na tabela, esperar por reservas, lançar exceção ou executar código do
-usuário. Se sinalizar CONFLICT/INVALID via argument, manter metadados consistentes;
+reentrar na tabela, esperar por outra transação/reservas, adquirir locks com
+inversão de ordem, lançar exceção, sair por longjmp ou executar código do
+usuário. Ponteiros copiados não conservam a proteção do mutex após o retorno;
+seu uso posterior exige protocolo explícito de vida útil e sincronização,
+inclusive contra substituição dos metadados durante outra visita. Se sinalizar
+CONFLICT/INVALID via argument, manter metadados consistentes;
 o callback não executa descarte integral da tentativa.
 
 `newtm_hash_policy_destroy_fn`: pré-condições — metadados não nulos da geração
@@ -661,8 +1131,9 @@ retirada, última referência física consumida, participações/reservas já re
 e nenhum mutex de bucket retido pelo chamador. Pós-condições — recursos dessa
 geração liberados exatamente uma vez, sem alterar o objeto do programa ou uma
 nova entrada de mesma chave. Não reentrar na tabela, acessar entrada retirada,
-lançar exceção nem depender de quiescência de entradas de outra geração. Não há
-retorno de erro recuperável nem rollback do destrutor.
+lançar exceção, sair por longjmp nem depender de quiescência de entradas de
+outra geração. Retornar normalmente; a tabela permanece viva até terminar
+callback e free da release. Não há retorno recuperável nem rollback do destrutor.
 
 ## Limites de concorrência e de substituição de política
 
@@ -718,8 +1189,9 @@ endereços efetivos de objetos locais e das cópias privadas OpenMP.
 
 ### Runtime
 
-A futura camada `newtm-transaction.c` possuirá a instância global, inicializada
-uma única vez com sincronização adequada antes de sua publicação. Examinar os
+A instância global atual e seu controle proprietário estão em newtm-hash.c,
+inicializados/publicados sob mutex. Uma eventual migração para
+newtm-transaction.c deve preservar admissão, leases e coordenador de encerramento. Examinar os
 mecanismos existentes em `libgomp/env.c`, `libgomp/libgomp.h` e `critical.c`;
 respeitar targets onde `GOMP_MUTEX_INIT_0` é falso. A configuração da capacidade
 fica na inicialização, sem alterar uma tabela já em uso.
@@ -761,25 +1233,30 @@ detectadas usam gomp_fatal; não existe retorno booleano de sucesso/commit.
 | `GOMP_transaction_register(address, size)` | Entrada begin ativa; address não nulo, size positivo e objeto vivo, tipo/endereço fornecidos corretamente pelo compilador; duplicatas com mesmo tamanho. | Objeto novo acrescentado ao contexto com uma chamada acquire; duplicata não acrescenta nem adquire de novo. Profundidade não muda; nenhum valor do objeto lido/escrito. |
 | `GOMP_transaction_end()` | Entrada begin correspondente ainda não encerrada na mesma execução; contexto presente e profundidade positiva. | Profundidade reduzida em um. Se ainda positiva, registros preservados. Se zero, uma release por registro distinto, registros/contexto liberados e ponteiro da thread limpo. Memória do programa não alterada, nenhum commit/rollback realizado. |
 
-A ponte ignora INVALID da hash apenas porque os stubs deixam handles nulos.
-Logo, criação solicitada e registro de rastreamento não significam tabela/entrada
-reais. Argumentos nulos ou size zero em register não são atualmente validados
-como no contrato funcional; não apresentar essa ausência de diagnóstico como
-suporte. Overflow de profundidade, tamanho incompatível em duplicata e saída
-sem contexto são fatais nos caminhos que os verificam.
+A ponte exige tabela completamente inicializada e handle não nulo antes de
+publicar o estado sob lock global, usando o mesmo helper não diagnóstico do
+wrapper create. Seu log create e diagnósticos fatais ficam depois de unlock.
+Na aquisição de entradas, exige OK e handle não nulo antes de publicar registro.
+Register rejeita contexto ausente/inativo, endereço nulo e size zero. Falhas de
+criação/aquisição, overflow de profundidade, tamanho incompatível em duplicata
+e saída sem contexto são fatais, sem retry. Um nó temporário de registro é
+liberado antes do diagnóstico de falha de aquisição. O estado não é publicado
+parcialmente. As entradas são reais, mas não concedem reservas transacionais.
 
 `newtm_trace_initialize`: chamado uma vez na inicialização da biblioteca, antes
 do uso concorrente; ao retornar, o lock global está utilizável, inclusive em
 targets que exigem inicialização explícita. Não cria a tabela nem contexto.
-`newtm_trace_finalize`: exige fim de todos os usuários e contextos; solicita
-destroy se houve uso e destrói o lock. Não limpa threads ainda ativas nem permite
-novas chamadas. O stub de destroy ainda não libera tabela real; sua falha é
-ignorada somente na etapa de rastreamento.
+`newtm_trace_finalize`: solicita owner_close sem esperar drenagem. Fecha a
+admissão; se há usuários/coordenador/entradas residuais, conserva tabela/controle
+em CLOSING sem diagnóstico fatal ou remoção forçada. Sem usuários, um único
+coordenador chama destroy fora do mutex e publica CLOSED em OK. O mutex estático
+permanece vivo para chamadas tardias. Não substitui a exclusão de código exigida
+por dlclose; ver o protocolo de admissão acima.
 
-Para registro funcional futuro, exigir contexto ativo/proprietário, endereço
-e tamanho válidos, tipo admitido e vida útil até a saída externa. Sucesso deve
-manter uma referência real por objeto distinto, sem adquirir reserva nem copiar
-seu valor. Falha não publica participação parcial nem muda profundidade; tamanho
+O registro atual exige contexto ativo/proprietário, endereço e tamanho
+válidos e vida útil até a saída externa; a validação completa dos tipos
+transacionais continua futura. Sucesso mantém uma referência real por objeto
+distinto, sem adquirir reserva nem copiar seu valor. Falha não publica participação parcial nem muda profundidade; tamanho
 incompatível é erro permanente, não conflito repetível. Definir sua sinalização
 na futura ABI, sem inferir estado de sucesso do void atual.
 
@@ -961,9 +1438,12 @@ comportamento visível da diretiva mudar.
 
 As políticas de tipos, aliases, funções chamadas e restauração estão definidas
 nas seções anteriores. Antes de integrar o compilador, fechar os mecanismos de
-reconhecimento de funções transacionais, diagnóstico de aliases não suportados,
-reinício C/C++ e cleanups, além do tratamento de exceções, leituras externas
-não listadas, matriz precisa dos tipos e comportamento da forma sem lista. A forma sem lista existe hoje, mas não autoriza inferir
+reconhecimento/geração das versões transacionais escolhidas, sua ABI de
+contexto/status/resultado e diagnóstico de chamadas não preparadas, além de
+reinício C/C++, diagnósticos da rejeição inicial de exceções/cleanups e
+representação privada. O protocolo para suporte futuro de cleanups em tentativa
+condenada permanece fora do subconjunto inicial. Leituras externas, tipos iniciais e identidade/sobreposição já têm
+regras definidas acima; falta implementar sua aplicação e seus diagnósticos. A forma sem lista existe hoje, mas não autoriza inferir
 implicitamente todos os objetos acessados nem escrever objetos externos não
 listados. Aplicar as limitações sobre sobreposição, tasks e efeitos externos e
 diagnosticar os casos identificáveis. Esses mecanismos devem ser definidos antes
@@ -976,22 +1456,24 @@ individualmente pelo usuário.
 ## Estado atual da biblioteca hash
 
 `libgomp/newtm-hash.c` e `.h` definem tipos opacos, estruturas privadas e nove
-primitivas internas. Os corpos apenas imprimem argumentos; funções de estado
-retornam INVALID, saídas ficam nulas e consultas retornam null/zero. Não há
-operações reais de tabela. A ponte GOMP_transaction_* chama create/acquire/
-release/destroy para rastreamento e ignora esses estados deliberadamente.
+primitivas internas. create/destroy/acquire/lookup_acquire/release estão
+implementadas, incluindo mistura de endereços, colisões por encadeamento,
+referências e retirada na última liberação. Address/size já retornam os campos
+imutáveis sem lock com referência retida; visit executa o callback uma vez sob
+mutex do bucket e libera-o ao retornar. Count já bloqueia todos os buckets em ordem crescente, soma com saturação
+e desbloqueia em ordem inversa; zero não comprova quiescência. A ponte usa referências reais, verifica
+criação/aquisição/destruição e preserva flat nesting. Todas mantêm printf/fflush
+fora dos mutexes de buckets. Reserva, dados privados e STM continuam ausentes.
 
-Ao implementar a hash, atualizar a ponte na mesma entrega: verificar criação e
-aquisição antes de publicar estado inicializado ou registros; não aceitar
-handles nulos como sucesso; diagnosticar falhas permanentes sem retry infinito;
-verificar destruição e manter a ordem de retirada das referências. O contrato
-de erro não pode mudar apenas dentro das primitivas, deixando os chamadores
-com o comportamento dos stubs.
+A ponte já verifica criação e aquisição antes de publicar estado ou registros,
+não aceita handles nulos como sucesso, diagnostica falhas permanentes sem retry
+e verifica destruição. Preservar esse contrato nas próximas etapas. lookup não
+tem chamador de produção: um contexto que já possui referência pode reutilizá-la.
 
 O fonte e o cabeçalho estão incluídos em Makefile.am/Makefile.in. Os símbolos
-newtm_hash_* continuam internos; somente a ponte é exportada. Build e testes
-históricos estão registrados em OPENMP_TRANSACTION_IMPLEMENTATION.md e não
-constituem validação funcional da tabela.
+newtm_hash_* continuam internos; somente a ponte é exportada. Build, testes e limites de cada execução estão em
+OPENMP_TRANSACTION_IMPLEMENTATION.md. Há validação funcional estrutural da hash;
+não a confundir com testes de reservas/STM ou com a auditoria histórica.
 
 ## Inventário consolidado e sequência de trabalho
 
@@ -1001,18 +1483,26 @@ e futuros e pontos de chamada. Os contratos especializados deste agente
 permanecem detalhados aqui; mudanças de interface devem atualizar também o
 inventário. Os nomes stm_* continuam conceituais, sem assinatura C ou ABI definida.
 
-A sequência solicitada prioriza contratos e esqueletos antes das operações reais.
-Os seis esqueletos internos de ciclo de vida já foram acrescentados; contratos,
-classificação e evidências estão no inventário e no relatório de implementação.
-A hash operacional e o ciclo de vida funcional continuam etapas posteriores.
-Fontes atuais: `/usr/src/gcc-omp-transaction`; referências a
-`/usr/src/gcc-16.2.0` neste documento correspondem ao caminho antigo.
+Estado consolidado em 2026-10-28: as nove primitivas da hash, a ponte com
+referências reais e o controle de admissão/participações OPEN/CLOSING/CLOSED
+estão implementados. Os testes permanentes incluem estrutura, concorrência,
+metadados, contagem, diagnósticos, encerramento e carga parametrizada 1:9/1:1/9:1.
+Não listar novamente a implementação da hash ou seu shutdown como tarefas futuras.
+Read/write e os seis serviços de ciclo de vida da tentativa continuam esqueletos;
+reservas, dados privados, instrumentação de acessos, propagação segura, commit,
+descarte e retry funcionais continuam pendentes. A ordem de integração está em
+[próximas etapas](OPENMP_TRANSACTION_PROJECT_AGENT.md#orientação-para-as-próximas-etapas).
+Não confundir participação do proprietário com reserva/estado de tentativa STM.
+Fontes: `gcc-src-tm/`; build: `gcc-build/`; testes: `transaction_test/`, na raiz do
+repositório. No contêiner atual, a raiz é `/usr/src/gcc-tm`. Caminhos antigos em
+relatos datados são históricos; adaptar comandos à cópia em uso.
 
 ## Relação com os esqueletos de ciclo de vida
 
-newtm_begin recebe tabela emprestada e slot de contexto; a tabela futura deve
+newtm_begin permanece esqueleto com tabela emprestada e slot de contexto; ela deve
 sobreviver aos contextos. newtm_register reterá uma referência por objeto distinto.
 newtm_end/discard retirarão reservas antes de liberar referências. Essa propriedade
 é contrato futuro: os seis stubs não chamam a hash nem possuem contexto funcional.
-A ponte GOMP de rastreamento permanece em newtm-hash.c, com seus handles nulos.
+A ponte GOMP permanece em newtm-hash.c com tabela e referências reais,
+sem reservas ou acesso a valores do programa.
 NEWTM_LIFECYCLE_* não é NEWTM_HASH_*; falha estrutural não vira conflito por cast.
