@@ -165,6 +165,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "rtl.h"
 #include "tree.h"
 #include "gimple.h"
+#include "omp-general.h"
+#include "newtm-occurrence.h"
 #include "cfghooks.h"
 #include "regset.h"     /* FIXME: For reg_obstack.  */
 #include "alloc-pool.h"
@@ -2588,6 +2590,10 @@ symbol_table::finalize_compilation_unit (void)
 
   analyze_toplevel_extended_asm ();
 
+  /* All same-unit definitions are available, before any body is gimplified. */
+  if (flag_openmp && !in_lto_p)
+    newtm_analyze_unit ();
+
   /* Gimplify and lower all functions, compute reachability and
      remove unreachable nodes.  */
   analyze_functions (/*first_time=*/true);
@@ -2600,6 +2606,7 @@ symbol_table::finalize_compilation_unit (void)
 
   /* All nested functions should be lowered now.  */
   nested_function_info::release ();
+  newtm_occurrence_reset ();
 
   /* Offloading requires LTO infrastructure.  */
   if (!in_lto_p && g->have_offload)

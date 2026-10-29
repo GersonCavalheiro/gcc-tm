@@ -93,6 +93,67 @@ check-hash-owner: .build/hash_owner
 	python3 verificar_hash_owner.py
 
 # Checkpoint da base de hash/owner/contexto; cabecalho do script delimita cobertura.
+.PHONY: check-register
+.build/register: register.c $(HASH_SOURCE)/newtm-hash.c $(HASH_SOURCE)/newtm-hash.h $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) $(HASH_TEST_INCLUDES) $< $(LDFLAGS) $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-register: .build/register
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/register"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/register.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-reservations
+.build/reservations: reservations.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) -Wl,--wrap=gomp_malloc_cleared $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-reservations: .build/reservations
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/reservations"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/reservations.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-values
+.build/values: values.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-values: .build/values
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/values"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/values.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-access
+.build/access: access.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+# check-values supplies scalar/aggregate read-your-writes and interval coverage.
+check-access: .build/access check-values
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/access"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/access.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-commit
+.build/commit: commit.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) -Wl,--wrap=memcpy,--wrap=gomp_malloc,--wrap=gomp_malloc_cleared,--wrap=newtm_hash_release,--wrap=newtm_hash_owner_release $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-commit: .build/commit
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/commit"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/commit.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-failure
+.build/failure: failure.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) -Wl,--wrap=newtm_hash_release,--wrap=newtm_hash_owner_release,--wrap=gomp_fatal $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-failure: .build/failure
+	python3 verificar_failure.py
+
+.PHONY: check-retry
+.build/retry: retry.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) -Wl,--wrap=newtm_hash_release,--wrap=newtm_hash_owner_release $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-retry: .build/retry check-failure
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/retry"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/retry.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-overlap
+.build/overlap: overlap.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(GOMP_BUILD)/.libs/libgomp.a | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) -I$(HASH_SOURCE) $< $(LDFLAGS) -Wl,--wrap=newtm_hash_acquire $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+check-overlap: .build/overlap
+	python3 -c 'import subprocess; from pathlib import Path; r = subprocess.run(["./.build/overlap"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60); Path(".build/overlap.log").write_text(r.stdout); print(r.stdout, end=""); raise SystemExit(r.returncode)'
+
+.PHONY: check-subset
+check-subset:
+	python3 verificar_subset.py $(GCC_BUILD)
+
 .PHONY: check-checkpoint-contexto
 check-checkpoint-contexto:
 	+python3 checkpoint_contexto_pronto_para_registro.py --make "$(MAKE)" \
@@ -100,3 +161,33 @@ check-checkpoint-contexto:
 	  --var 'CFLAGS=$(CFLAGS)' --var 'CPPFLAGS=$(CPPFLAGS)' \
 	  --var 'LDFLAGS=$(LDFLAGS)' --var 'LDLIBS=$(LDLIBS)' \
 	  --var 'CARGA_THREADS=$(CARGA_THREADS)' --var 'CARGA_REPETICOES=$(CARGA_REPETICOES)'
+
+# Prepared bodies call hidden STM interfaces; link the same local runtime for
+# both OpenMP parallel regions and newtm_*. Do not expose those symbols in a DSO.
+INTERNO_PROGRAMS = .build/transaction_interno_simples .build/transaction_interno_carga
+INTERNO_REPETICOES ?= 100
+
+# Compile OpenMP separately: linking without -fopenmp avoids adding a second,
+# system libgomp DSO through the driver's automatic -lgomp.
+.build/transaction_interno_%.o: transaction_interno_%.c $(HASH_SOURCE)/newtm-context.h $(HASH_SOURCE)/newtm-transaction.h $(HASH_SOURCE)/newtm-hash.h Makefile | .build
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ -B$(GOMP_BUILD)/ $(CFLAGS) -I$(HASH_SOURCE) -I$(GOMP_BUILD) -fopenmp -c $< -o $@
+
+$(INTERNO_PROGRAMS): .build/%: .build/%.o $(GOMP_BUILD)/.libs/libgomp.a Makefile
+	$(TRANSACTION_CC) -B$(GCC_BUILD)/gcc/ $(CFLAGS) $< $(LDFLAGS) $(GOMP_BUILD)/.libs/libgomp.a -pthread $(LDLIBS) -o $@
+
+all: $(INTERNO_PROGRAMS)
+check: check-internos
+
+.PHONY: exemplos-internos check-internos
+exemplos-internos: $(INTERNO_PROGRAMS)
+
+check-internos: exemplos-internos
+	python3 verificar_internos.py "$(CARGA_THREADS)" "$(INTERNO_REPETICOES)"
+
+.PHONY: check-ocorrencias
+check-ocorrencias:
+	python3 verificar_ocorrencias.py $(GCC_BUILD)
+
+.PHONY: check-descritores
+check-descritores:
+	python3 verificar_descritores.py $(GCC_BUILD)

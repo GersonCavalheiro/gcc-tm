@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "calls.h"
 #include "gimple-iterator.h"
 #include "gimple-low.h"
+#include "newtm-occurrence.h"
 #include "predict.h"
 #include "gimple-predict.h"
 #include "gimple-fold.h"
@@ -123,6 +124,9 @@ lower_function_body (void)
 {
   struct lower_data data;
   gimple_seq body = gimple_body (current_function_decl);
+  /* Phase-one bindings belong to High GIMPLE, through omplower.  Do not leave
+     stale associations across CFG/SSA construction or optimization. */
+  newtm_occurrence_retire (body);
   gimple_seq lowered_body;
   gimple_stmt_iterator i;
   gimple *bind;

@@ -47,6 +47,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-fold.h"
 #include "tree-eh.h"
 #include "gimplify.h"
+#include "newtm-occurrence.h"
+#include "newtm-descriptor.h"
 #include "stor-layout.h"
 #include "print-tree.h"
 #include "tree-iterator.h"
@@ -314,6 +316,7 @@ static void prepare_gimple_addressable (tree *, gimple_seq *);
 static inline void
 gimplify_seq_add_stmt (gimple_seq *seq_p, gimple *gs)
 {
+  newtm_occurrence_emit (gs);
   gimple_seq_add_stmt_without_update (seq_p, gs);
 }
 
@@ -20311,6 +20314,8 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
   if (save_expr == NULL_TREE)
     return GS_ALL_DONE;
 
+  newtm_occurrence_scope newtm_source (save_expr, current_function_decl);
+
   /* If we are gimplifying a top-level statement, PRE_P must be valid.  */
   is_statement = gimple_test_f == is_gimple_stmt;
   if (is_statement)
@@ -20969,6 +20974,13 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	  gcc_unreachable ();
 
 	case DEBUG_BEGIN_STMT:
+          if (newtm_source.enabled ())
+            if (tree read = newtm_source_read (*expr_p))
+              {
+                gimple *anchor = gimple_build_nop ();
+                newtm_occurrence_source_only (anchor, read);
+                gimplify_seq_add_stmt (pre_p, anchor);
+              }
 	  gimplify_seq_add_stmt (pre_p,
 				 gimple_build_debug_begin_stmt
 				 (TREE_BLOCK (*expr_p),
@@ -21097,6 +21109,7 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 		      builtin_decl_explicit (BUILT_IN_GOMP_TRANSACTION_REGISTER),
 		      2, address, fold_convert (size_type_node,
 					      TYPE_SIZE_UNIT (type)));
+                    newtm_descriptor_note_registration (call, type);
 		    gimplify_and_add (call, &active);
 		  }
 		gimplify_and_add (OMP_BODY (*expr_p), &active);
@@ -21116,7 +21129,8 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	        g = gimple_build_omp_section (body);
 	        break;
 	      case OMP_TRANSACTION:
-		g = newtm_build_transaction (body);
+		g = newtm_build_transaction (body, OMP_TRANSACTION_OBJECTS (*expr_p),
+                                           OMP_TRANSACTION_PLAN (*expr_p));
 		break;
 	      case OMP_STRUCTURED_BLOCK:
 		g = gimple_build_omp_structured_block (body);
@@ -21627,6 +21641,14 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
     }
 
  out:
+  if (newtm_source.enabled ())
+    {
+      newtm_occurrence_capture (*pre_p, gsi_end_p (pre_last_gsi)
+                                       ? NULL : gsi_stmt (pre_last_gsi));
+      if (post_p != pre_p)
+        newtm_occurrence_capture (*post_p, gsi_end_p (post_last_gsi)
+                                          ? NULL : gsi_stmt (post_last_gsi));
+    }
   input_location = saved_location;
   return ret;
 }
@@ -22160,6 +22182,7 @@ gimplify_function_tree (tree fndecl)
       gimple_set_body (fndecl, seq);
     }
 
+  newtm_descriptor_function (fndecl);
   DECL_SAVED_TREE (fndecl) = NULL_TREE;
   cfun->curr_properties |= PROP_gimple_any;
 

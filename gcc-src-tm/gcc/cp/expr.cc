@@ -23,6 +23,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "system.h"
 #include "coretypes.h"
 #include "cp-tree.h"
+#include "omp-general.h"
 
 /* Expand C++-specific constants.  Currently, this means PTRMEM_CST.  */
 
@@ -98,6 +99,14 @@ mark_use (tree expr, bool rvalue_p, bool read_p,
 
   if (expr == NULL_TREE || error_operand_p (expr))
     return expr;
+
+  if (flag_openmp && rvalue_p && read_p && !cp_unevaluated_operand
+      && current_function_decl && TREE_TYPE (expr)
+      && TYPE_READONLY (TREE_TYPE (expr)))
+    {
+      if (building_stmt_list_p ())
+        if (tree marker = newtm_note_source_read (expr, loc == UNKNOWN_LOCATION ? input_location : loc)) add_stmt (marker);
+    }
 
   if (reject_builtin && reject_gcc_builtin (expr, loc))
     return error_mark_node;

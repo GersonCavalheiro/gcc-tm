@@ -777,6 +777,7 @@ c_genericize_control_r (tree *stmt_p, int *walk_subtrees, void *data)
 void
 c_genericize (tree fndecl)
 {
+  if (flag_openmp) newtm_save_source_body (fndecl);
   dump_file_info *dfi;
   FILE *dump_orig;
   dump_flags_t local_dump_flags;

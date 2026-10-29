@@ -8,7 +8,7 @@ main (void)
   int participants = 0;
   #pragma omp parallel reduction (+:result, participants)
   {
-    #pragma omp transaction
+    #pragma omp transaction (result, participants)
     {
       int local = 7;
       #pragma omp transaction
@@ -19,12 +19,12 @@ main (void)
       result += local;
       participants++;
     }
-    #pragma omp transaction
-    {
-      #pragma omp for
-      for (int i = 0; i < 100; ++i)
-	result += 1;
-    }
+    #pragma omp for
+    for (int i = 0; i < 100; ++i)
+      {
+        #pragma omp transaction (result)
+        { result += 1; }
+      }
   }
   if (participants < 1 || result != 100 + 9 * participants)
     __builtin_abort ();

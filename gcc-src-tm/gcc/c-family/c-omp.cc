@@ -153,7 +153,8 @@ c_finish_omp_critical (location_t loc, tree body, tree name, tree clauses)
 tree
 newtm_finish_transaction (location_t loc, tree body, tree objects)
 {
-  tree stmt = build2_loc (loc, OMP_TRANSACTION, void_type_node, body, objects);
+  tree stmt = build3_loc (loc, OMP_TRANSACTION, void_type_node, body, objects,
+                         NULL_TREE);
   return add_stmt (stmt);
 }
 

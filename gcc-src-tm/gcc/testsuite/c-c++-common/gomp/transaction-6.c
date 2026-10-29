@@ -5,7 +5,7 @@ newtm_test_exit (void)
 {
   #pragma omp transaction
   {
-    goto outside; /* { dg-error "invalid branch" } */
+    goto outside; /* { dg-error "invalid branch" } */ /* { dg-error "unstructured jumps" "" { target c } } */
     /* { dg-message "from here|exits OpenMP" "" { target c++ } .-1 } */
   }
 outside:; /* { dg-error "jump to label" "" { target c++ } } */

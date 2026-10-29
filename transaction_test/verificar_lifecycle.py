@@ -28,10 +28,11 @@ assert [re.search(r"kind=(-?\d+)$", line).group(1)
         for line in registers] == ["0", "1", "99"]
 assert sum("newtm_hash_create:" in line for line in lines) == 1
 assert sum("newtm_hash_destroy:" in line for line in lines) == 1
-assert sum("newtm_hash_release:" in line for line in lines) == 3
+assert sum("newtm_hash_release:" in line for line in lines) == 5
 fields = {name: None for name in
           ("begin", "register", "end", "fail", "discard", "backoff",
-           "policy_destroy")}
+           "policy_destroy", "reserve", "read", "write", "after_failure",
+           "execute")}
 
 # Permanent errors must not hang or manufacture a recoverable result.
 for mode, message in [

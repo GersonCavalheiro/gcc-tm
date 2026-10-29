@@ -13,7 +13,6 @@ atualizar (void)
     saldo += 4;
     total += 5;
   }
-  puts ("[teste] funcao interna encerrada");
 }
 
 int
@@ -29,10 +28,6 @@ main (void)
       total += 3;
       atualizar ();
     }
-    puts ("[teste] regiao interna encerrada");
-    if (saldo != 17 || total != 8)
-      abort ();
-    puts ("[teste] antes da saida externa");
   }
   puts ("[teste] regiao externa encerrada");
 

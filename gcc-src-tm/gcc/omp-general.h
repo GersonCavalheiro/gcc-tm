@@ -26,6 +26,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "omp-api.h"
 #include "omp-selectors.h"
 
+extern void newtm_analyze_unit (void);
+extern void newtm_save_source_body (tree);
+extern tree newtm_note_source_read (tree, location_t);
+extern tree newtm_source_read (tree);
+
 /*  Flags for an OpenACC loop.  */
 
 enum oacc_loop_flags {

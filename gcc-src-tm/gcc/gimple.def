@@ -281,7 +281,7 @@ DEFGSCODE(GIMPLE_OMP_FOR, "gimple_omp_for", GSS_OMP_FOR)
 DEFGSCODE(GIMPLE_OMP_STRUCTURED_BLOCK, "gimple_omp_structured_block", GSS_OMP)
 
 /* OpenMP transaction region, containing only a structured BODY.  */
-DEFGSCODE(GIMPLE_OMP_TRANSACTION, "gimple_omp_transaction", GSS_OMP)
+DEFGSCODE(GIMPLE_OMP_TRANSACTION, "gimple_omp_transaction", GSS_OMP_TRANSACTION)
 
 /* GIMPLE_OMP_MASTER <BODY> represents #pragma omp master.
    BODY is the sequence of statements to execute in the master section.  */

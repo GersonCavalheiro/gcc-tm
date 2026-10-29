@@ -49,6 +49,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-ssa.h"
 #include "splay-tree.h"
 #include "omp-general.h"
+#include "newtm-descriptor.h"
 #include "omp-low.h"
 #include "gimple-low.h"
 #include "alloc-pool.h"
@@ -15347,6 +15348,9 @@ execute_lower_omp (void)
 				 delete_omp_context);
 
   body = gimple_body (current_function_decl);
+  /* Materialized identities must be consumed before outlining/remapping.
+     Copies deliberately require rebuilding, never reuse old temporaries. */
+  newtm_descriptor_retire (body);
 
   scan_omp (&body, NULL);
   gcc_assert (taskreg_nesting_level == 0);

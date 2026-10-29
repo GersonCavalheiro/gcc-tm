@@ -48,7 +48,7 @@ main (void)
        a sincronizacao deste exemplo na etapa atual de rastreamento.  */
     #pragma omp critical (transaction_exemplo_resultado)
     {
-      #pragma omp transaction (maior, posicao)
+      #pragma omp transaction (maior, posicao, maior_local, posicao_local)
       {
 	if (maior_local > maior
 	    || (maior_local == maior && posicao_local < posicao))

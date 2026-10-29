@@ -37,6 +37,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-iterator.h"
 #include "gimple-walk.h"
 #include "gimplify.h"
+#include "newtm-occurrence.h"
 #include "target.h"
 #include "builtins.h"
 #include "selftest.h"
@@ -1085,13 +1086,15 @@ gimple_build_omp_structured_block (gimple_seq body)
 
 
 /* Build a GIMPLE_OMP_TRANSACTION statement, retaining BODY until OpenMP
-   lowering.  The region needs no fields beyond the shared OpenMP body.  */
+   lowering, together with its non-executable canonical identity plan.  */
 
 gimple *
-newtm_build_transaction (gimple_seq body)
+newtm_build_transaction (gimple_seq body, tree objects, tree plan)
 {
   gimple *stmt = gimple_alloc (GIMPLE_OMP_TRANSACTION, 0);
   gimple_omp_set_body (stmt, body);
+  *newtm_transaction_objects_ptr (stmt) = objects;
+  *newtm_transaction_plan_ptr (stmt) = plan;
   return stmt;
 }
 
@@ -2260,11 +2263,17 @@ gimple_copy (gimple *stmt)
 	case GIMPLE_OMP_SECTION:
 	case GIMPLE_OMP_MASTER:
 	case GIMPLE_OMP_STRUCTURED_BLOCK:
-	case GIMPLE_OMP_TRANSACTION:
 	copy_omp_body:
 	  new_seq = gimple_seq_copy (gimple_omp_body (stmt));
 	  gimple_omp_set_body (copy, new_seq);
 	  break;
+
+        case GIMPLE_OMP_TRANSACTION:
+          *newtm_transaction_objects_ptr (copy)
+            = unshare_expr (*newtm_transaction_objects_ptr (stmt));
+          *newtm_transaction_plan_ptr (copy)
+            = unshare_expr (*newtm_transaction_plan_ptr (stmt));
+          goto copy_omp_body;
 
 	case GIMPLE_OMP_MASKED:
 	  t = unshare_expr (gimple_omp_masked_clauses (stmt));
@@ -2339,6 +2348,7 @@ gimple_copy (gimple *stmt)
   if (gimple_debug_nonbind_marker_p (stmt))
     cfun->debug_marker_count++;
 
+  newtm_occurrence_copy (stmt, copy);
   return copy;
 }
 

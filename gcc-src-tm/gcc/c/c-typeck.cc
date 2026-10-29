@@ -2321,12 +2321,20 @@ decl_constant_value_1 (tree decl, bool in_init)
 /* Return either DECL or its known constant value (if it has one).
    Like the above, but always return decl outside of functions.  */
 
+/* Folding an unevaluated operand must not introduce a source read marker. */
+static unsigned newtm_unevaluated_folding;
+
 tree
 decl_constant_value (tree decl)
 {
   /* Don't change a variable array bound or initial value to a constant
      in a place where a variable is invalid.  */
-  return current_function_decl ? decl_constant_value_1 (decl, false) : decl;
+  tree value = current_function_decl ? decl_constant_value_1 (decl, false) : decl;
+  if (flag_openmp && current_function_decl && value != decl
+      && c_inhibit_evaluation_warnings == 0 && !in_sizeof && !in_typeof
+      && !newtm_unevaluated_folding && building_stmt_list_p ())
+    if (tree marker = newtm_note_source_read (decl, input_location)) add_stmt (marker);
+  return value;
 }
 
 /* Convert the array expression EXP to a pointer.  */
@@ -2665,6 +2673,15 @@ convert_lvalue_to_rvalue (location_t loc, struct c_expr exp,
 			  bool convert_p, bool read_p, bool for_init)
 {
   bool force_non_npc = false;
+  if (flag_openmp && read_p && current_function_decl
+      && c_inhibit_evaluation_warnings == 0 && !in_sizeof && !in_typeof
+      && TREE_TYPE (exp.value)
+      && TYPE_READONLY (TREE_TYPE (exp.value))
+      && TREE_CODE (TREE_TYPE (exp.value)) != ARRAY_TYPE)
+    {
+      if (building_stmt_list_p ())
+        if (tree marker = newtm_note_source_read (exp.value, loc)) add_stmt (marker);
+    }
   if (read_p)
     mark_exp_read (exp.value);
   /* We only generate a call to .ACCESS_WITH_SIZE when it is a read.  */
@@ -4048,8 +4065,11 @@ c_expr_sizeof_expr (location_t loc, struct c_expr expr)
 			  TREE_TYPE (expr.value)))
 	    inform (DECL_SOURCE_LOCATION (expr.value), "declared here");
 	}
+      bool newtm_unevaluated = !C_TYPE_VARIABLE_SIZE (TREE_TYPE (expr.value));
+      newtm_unevaluated_folding += newtm_unevaluated;
       tree folded_expr = c_fully_fold (expr.value, require_constant_value,
 				       &expr_const_operands);
+      newtm_unevaluated_folding -= newtm_unevaluated;
       ret.value = c_sizeof (loc, TREE_TYPE (folded_expr));
       c_last_sizeof_arg = expr.value;
       c_last_sizeof_loc = loc;
@@ -4153,8 +4173,11 @@ c_expr_countof_expr (location_t loc, struct c_expr expr)
     {
       bool expr_const_operands = true;
 
+      bool newtm_unevaluated = !C_TYPE_VARIABLE_SIZE (TREE_TYPE (expr.value));
+      newtm_unevaluated_folding += newtm_unevaluated;
       tree folded_expr = c_fully_fold (expr.value, require_constant_value,
 				       &expr_const_operands);
+      newtm_unevaluated_folding -= newtm_unevaluated;
       ret.value = c_countof_type (loc, TREE_TYPE (folded_expr));
       c_last_sizeof_arg = expr.value;
       c_last_sizeof_loc = loc;

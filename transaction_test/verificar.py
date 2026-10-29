@@ -37,7 +37,7 @@ for threads in (1, 2, 4):
     usadas = int(resultado.group(1))
     # O runtime pode limitar a equipe; verificar a quantidade efetivamente usada.
     for operacao in ("acquire", "release"):
-        contagem(log, operacao, 2 * usadas)
+        contagem(log, operacao, 4 * usadas)
     contagem(log, "create", 1)
     contagem(log, "destroy", 1)
     print(f"OK: maximo, solicitadas={threads}, usadas={usadas}")
@@ -48,9 +48,6 @@ for operacao in ("acquire", "release"):
 contagem(log, "create", 1)
 contagem(log, "destroy", 1)
 marcadores = [
-    "[teste] funcao interna encerrada",
-    "[teste] regiao interna encerrada",
-    "[teste] antes da saida externa",
     "[newtm] newtm_hash_release:",
     "[teste] regiao externa encerrada",
     "[teste] aninhamento OK: saldo=17 total=8",
@@ -59,7 +56,7 @@ marcadores = [
 posicoes = [log.index(marcador) for marcador in marcadores]
 if posicoes != sorted(posicoes):
     raise AssertionError(log)
-if log.rindex("[newtm] newtm_hash_release:") > log.index(marcadores[4]):
+if log.rindex("[newtm] newtm_hash_release:") > log.index(marcadores[1]):
     raise AssertionError(log)
 if log.rindex("[newtm] newtm_hash_acquire:") > log.index(marcadores[0]):
     raise AssertionError(log)

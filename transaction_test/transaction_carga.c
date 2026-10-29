@@ -1,6 +1,6 @@
 /* Parameterized concurrent workload for the experimental transaction bridge.
    Current transaction regions do not isolate memory: protect the shared data
-   with critical, keeping registration/release outside that critical section.
+   with an external critical section, including registration/release.
    Ratios classify transactions; a write transaction is a read-modify-write. */
 #include <limits.h>
 #include <omp.h>
@@ -88,11 +88,9 @@ main (int argc, char **argv)
 	    credit += writes_weight;
 	  unsigned long long observed, inverse;
 
-	  #pragma omp transaction (state)
+	  #pragma omp critical (transaction_carga_state)
 	  {
-	    /* Temporary synchronization until the STM implements isolation.
-	       Hash registrations can still overlap across threads. */
-	    #pragma omp critical (transaction_carga_state)
+	    #pragma omp transaction (state, writing, observed, inverse)
 	    {
 	      observed = state.value;
 	      inverse = state.inverse;

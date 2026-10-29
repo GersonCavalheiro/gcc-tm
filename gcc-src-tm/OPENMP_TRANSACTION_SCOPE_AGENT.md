@@ -1,3 +1,58 @@
+# Orientação vigente — Escopo, tipos e identidade no compilador
+
+## Etapa 2 de geração de código — estado vigente
+
+[Descritores de registro e identidade](OPENMP_TRANSACTION_DESCRIPTORS.md)
+implementados em High GIMPLE: chave lógica original, extensão, deslocamento,
+kind e validade estrutural/de faixa, usando operandos avaliados e aritmética
+checada. Referência a elemento preserva extensão/kind do elemento registrado.
+Parâmetros/resultados ainda dependentes da ABI usam canais explícitos, sem
+inventar identidade ou sucesso. Unknown/source-only/stale exigem resolução ou
+rejeição pelo consumidor futuro; nunca fallback à memória comum.
+Descritores são retirados na entrada de omplower; cópias exigem reconstrução.
+Temporários ficam no BIND da região OpenMP correspondente. O pragma permanece
+de rastreamento: faltam ABI executável, clones, acessos STM e epílogos. Ver o
+contrato para limites e testes; este estado atualiza as pendências históricas.
+
+
+Atualizado em 2026-10-29. Ler primeiro o [registro de decisões e extensões](OPENMP_TRANSACTION_DECISIONS.md).
+Os IDs D/F abaixo remetem a esse registro. Esta orientação prevalece sobre
+estados antigos de stubs ou funcionalidades pendentes no histórico deste arquivo.
+
+A análise atual está em `gcc/newtm-analysis.cc`, antes da gimplificação. Preservar
+leituras constantes por marcadores semânticos, registros alcançados e interseção
+nos desvios. Chamadas diretas da mesma unidade são validadas transitivamente;
+clones executáveis ainda não são gerados. Campos/elementos conservam base física,
+extensão registrada e offsets. Planos TREE/GIMPLE são receitas não executáveis;
+remapear suas declarações explicitamente e marcar endereçabilidade antes de
+gimplificar usos anteriores. Manter D02–D05 e os limites atuais; F02–F05, F07 e
+F09 exigem prova de identidade, vida útil e avaliação única antes de relaxá-los.
+
+Consultar a [ABI especificada](OPENMP_TRANSACTION_ABI.md) e o
+[relatório de revisão e validação](OPENMP_TRANSACTION_SUBSET_REVIEW.md).
+A autorização mais recente permite avaliar e implementar a integração se viável.
+A [avaliação de prontidão](OPENMP_TRANSACTION_INTEGRATION_READINESS.md) encontrou
+bloqueios técnicos; o pragma permanece com rastreamento. A vinculação de
+ocorrências da etapa 1 já está implementada. Faltam descritores/bindings
+executáveis, instrumentação STM, clones e epílogos antes da ativação.
+Em nova mudança, atualizar contratos e o estado das propostas/limitações.
+
+## Etapa 1 de geração de código concluída — 2026-10-29
+
+Os [vínculos de ocorrências](OPENMP_TRANSACTION_OCCURRENCES.md) associam sites
+GENERIC às instruções e operandos GIMPLE emitidos, incluindo corpos de funções
+selecionadas para preparação. Consultar argumentos, índices, referências e
+resultados na instrução atual; nunca executar receitas do plano diagnóstico.
+Grupos conservam RMW; cópias recebem IDs novos; source-only não fornece valor
+avaliado. A janela termina antes de CFG/SSA. Essa etapa não ativa a ponte STM;
+descritores/kind, instrumentação, clones e epílogos continuam pendentes.
+
+## Histórico de etapas e referências técnicas
+
+Os textos abaixo conservam decisões e evidências no momento em que foram
+escritos. Descrições antigas de stubs, pendências e testes não substituem o
+estado vigente acima nem o registro central.
+
 ## Contexto: criação e limpeza implementadas — 2026-10-28
 
 Estruturas concretas em [newtm-context.h](libgomp/newtm-context.h), privadas à

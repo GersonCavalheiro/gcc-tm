@@ -30,6 +30,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "ssa.h"
 #include "cgraph.h"
 #include "gimple-pretty-print.h"
+#include "newtm-occurrence.h"
+#include "newtm-descriptor.h"
 #include "value-range-pretty-print.h"
 #include "internal-fn.h"
 #include "tree-eh.h"
@@ -1963,7 +1965,11 @@ static void
 dump_gimple_omp_block (pretty_printer *pp, const gimple *gs, int spc,
 		       dump_flags_t flags)
 {
-  if (flags & TDF_RAW)
+  if ((flags & TDF_RAW) && gimple_code (gs) == GIMPLE_OMP_TRANSACTION)
+    dump_gimple_fmt (pp, spc, flags, "%G <OBJECTS <%T>, PLAN <%T>, BODY <%S> >",
+                     gs, ((const gomp_transaction *) gs)->objects,
+                     ((const gomp_transaction *) gs)->plan, gimple_omp_body (gs));
+  else if (flags & TDF_RAW)
     dump_gimple_fmt (pp, spc, flags, "%G <%+BODY <%S> >", gs,
 		     gimple_omp_body (gs));
   else
@@ -1978,6 +1984,33 @@ dump_gimple_omp_block (pretty_printer *pp, const gimple *gs, int spc,
 	  break;
 	case GIMPLE_OMP_TRANSACTION:
 	  pp_string (pp, "#pragma omp transaction");
+          pp_string (pp, " [canonical-plan: ");
+          for (tree item = ((const gomp_transaction *) gs)->plan; item;
+               item = TREE_CHAIN (item))
+            {
+              tree v = TREE_VALUE (item);
+              unsigned mode = tree_to_uhwi (TREE_VEC_ELT (v, 6));
+              if (mode == 4)
+                {
+                  pp_string (pp, "prepare(");
+                  dump_generic_node (pp, TREE_VEC_ELT (v, 7), spc, flags, false);
+                  pp_string (pp, ")");
+                }
+              else
+                {
+                  pp_string (pp, mode == 1 ? "read{" : "write{");
+                  const char *names[] = { "base=", ", base-offset=", ", extent=",
+                    ", kind=", ", offset=", ", size=" };
+                  for (unsigned i = 0; i < 6; ++i)
+                    {
+                      pp_string (pp, names[i]);
+                      dump_generic_node (pp, TREE_VEC_ELT (v, i), spc, flags, false);
+                    }
+                  pp_string (pp, "}");
+                }
+              if (TREE_CHAIN (item)) pp_string (pp, "; ");
+            }
+          pp_string (pp, "]");
 	  break;
 	case GIMPLE_OMP_STRUCTURED_BLOCK:
 	  pp_string (pp, "#pragma omp __structured_block");
@@ -2711,6 +2744,134 @@ dump_gimple_mem_ops (pretty_printer *pp, const gimple *gs, int spc,
 }
 
 
+/* Render bindings from the instruction's CURRENT operands.  In particular,
+   never print a saved source offset as if it were an evaluated operand. */
+static void
+newtm_dump_occurrence (pretty_printer *pp, const gimple *gs, int spc,
+                       dump_flags_t flags)
+{
+  tree binding = newtm_occurrence_binding (gs);
+  if (!binding) return;
+  pp_string (pp, "/* newtm-bind");
+  const char *names[] = { " op=", " source=", " parent=", " group=" };
+  for (unsigned i = 0; i < 4; ++i)
+    {
+      pp_string (pp, names[i]);
+      pp_unsigned_wide_integer (pp, tree_to_uhwi (TREE_VEC_ELT (binding, i)));
+    }
+  pp_string (pp, " origin=");
+  pp_string (pp, get_tree_code_name ((enum tree_code)
+                                   tree_to_uhwi (TREE_VEC_ELT (binding, 4))));
+  unsigned mode = tree_to_uhwi (TREE_VEC_ELT (binding, 7));
+  pp_string (pp, " mode=");
+  pp_string (pp, mode & 128 ? "branch" : mode & 64 ? "return"
+                 : mode & 32 ? "source-only" : mode & 16 ? "register" : mode & 8 ? "call"
+                 : (mode & 3) == 3 ? "load-store" : mode & 2 ? "store"
+                 : mode & 1 ? "load" : "value");
+  if (mode & 32)
+    {
+      pp_string (pp, " witness=");
+      dump_generic_node (pp, TREE_VEC_ELT (binding, 9), spc, flags, false);
+      pp_string (pp, " evaluated=no result=none");
+    }
+  else if (is_gimple_assign (gs))
+    {
+      if (mode & 1)
+        {
+          pp_string (pp, " read-ref=");
+          dump_generic_node (pp, gimple_assign_rhs1 (gs), spc, flags, false);
+        }
+      if (mode & 2)
+        {
+          pp_string (pp, " write-ref=");
+          dump_generic_node (pp, gimple_assign_lhs (gs), spc, flags, false);
+        }
+      pp_string (pp, " result=");
+      dump_generic_node (pp, gimple_assign_lhs (gs), spc, flags, false);
+      pp_string (pp, " operands=[");
+      for (unsigned i = 1; i < gimple_num_ops (gs); ++i)
+        {
+          if (i != 1) pp_string (pp, ", ");
+          dump_generic_node (pp, gimple_op (gs, i), spc, flags, false);
+        }
+      pp_string (pp, "]");
+    }
+  else if (is_gimple_call (gs))
+    {
+      pp_string (pp, " callee=");
+      dump_generic_node (pp, gimple_call_fn (gs), spc, flags, false);
+      pp_string (pp, " result=");
+      tree lhs = gimple_call_lhs (gs);
+      if (lhs) dump_generic_node (pp, lhs, spc, flags, false);
+      else pp_string (pp, "none");
+      pp_string (pp, " arguments=[");
+      for (unsigned i = 0; i < gimple_call_num_args (gs); ++i)
+        {
+          if (i) pp_string (pp, ", ");
+          dump_generic_node (pp, gimple_call_arg (gs, i), spc, flags, false);
+        }
+      pp_string (pp, "]");
+    }
+  else if (mode & 64)
+    {
+      pp_string (pp, " result=");
+      tree value = gimple_return_retval (as_a <const greturn *> (gs));
+      if (value) dump_generic_node (pp, value, spc, flags, false);
+      else pp_string (pp, "none");
+    }
+  else if (mode & 128)
+    {
+      pp_string (pp, " operands=[");
+      dump_generic_node (pp, gimple_cond_lhs (gs), spc, flags, false);
+      pp_string (pp, ", ");
+      dump_generic_node (pp, gimple_cond_rhs (gs), spc, flags, false);
+      pp_string (pp, "]");
+    }
+  if (!integer_zerop (TREE_VEC_ELT (binding, 8)))
+    {
+      pp_string (pp, " copy-of=");
+      pp_unsigned_wide_integer (pp, tree_to_uhwi (TREE_VEC_ELT (binding, 8)));
+    }
+  pp_string (pp, " */");
+  newline_and_indent (pp, spc);
+}
+
+/* Descriptors contain only evaluated values and explicit unresolved channels. */
+static void
+newtm_dump_descriptors (pretty_printer *pp, const gimple *stmt, int spc,
+                        dump_flags_t flags)
+{
+  static const char *roles[] = { "read", "write", "register", "address", "argument", "return", "source" };
+  static const char *states[] = { "registered", "private", "unregistered", "incoming", "result", "unknown", "source-only", "stale" };
+  const char *fields[] = { " object=", " extent=", " offset=", " kind=", " size=", " valid=" };
+  for (tree p = newtm_descriptor_entries (stmt); p; p = TREE_CHAIN (p))
+    {
+      tree d = TREE_VALUE (p), key = TREE_PURPOSE (p);
+      pp_string (pp, "/* newtm-descriptor role=");
+      pp_string (pp, roles[tree_to_uhwi (TREE_VEC_ELT (key, 0))]);
+      pp_string (pp, " index=");
+      pp_unsigned_wide_integer (pp, tree_to_uhwi (TREE_VEC_ELT (key, 1)));
+      pp_string (pp, " state=");
+      pp_string (pp, states[tree_to_uhwi (TREE_VEC_ELT (d, NEWTM_D_STATE))]);
+      for (unsigned i = NEWTM_D_OBJECT; i <= NEWTM_D_VALID; ++i)
+        {
+          pp_string (pp, fields[i]);
+          if (TREE_VEC_ELT (d, i)) dump_generic_node (pp, TREE_VEC_ELT (d, i), spc, flags, false);
+          else pp_string (pp, "pending");
+        }
+      pp_string (pp, " origin=");
+      if (TREE_VEC_ELT (d, NEWTM_D_ORIGIN))
+        dump_generic_node (pp, TREE_VEC_ELT (d, NEWTM_D_ORIGIN), spc, flags, false);
+      else pp_string (pp, "none");
+      if (TREE_VEC_ELT (d, NEWTM_D_CHANNEL))
+        { pp_string (pp, " channel="); dump_generic_node (pp, TREE_VEC_ELT (d, NEWTM_D_CHANNEL), spc, flags, false); }
+      if (TREE_VEC_ELT (d, NEWTM_D_KIND_VALUE))
+        { pp_string (pp, " class="); dump_generic_node (pp, TREE_VEC_ELT (d, NEWTM_D_KIND_VALUE), spc, flags, false); }
+      pp_string (pp, " */");
+      newline_and_indent (pp, spc);
+    }
+}
+
 /* Print the gimple statement GS on the pretty printer PP, SPC
    spaces of indent.  FLAGS specifies details to show in the dump (see
    TDF_* in dumpfile.h).  The caller is responsible for calling
@@ -2722,6 +2883,9 @@ pp_gimple_stmt_1 (pretty_printer *pp, const gimple *gs, int spc,
 {
   if (!gs)
     return;
+
+  newtm_dump_occurrence (pp, gs, spc, flags);
+  newtm_dump_descriptors (pp, gs, spc, flags);
 
   if (flags & TDF_STMTADDR)
     pp_printf (pp, "<&%p> ", (const void *) gs);

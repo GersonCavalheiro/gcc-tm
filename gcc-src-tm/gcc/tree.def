@@ -1344,8 +1344,9 @@ DEFTREECODE (OMP_STRUCTURED_BLOCK, "omp_structured_block", tcc_statement, 1)
 
 /* OpenMP extension - #pragma omp transaction
    Operand 0: OMP_TRANSACTION_BODY: Transaction region body.
-   Operand 1: OMP_TRANSACTION_OBJECTS: List of resolved object declarations.  */
-DEFTREECODE (OMP_TRANSACTION, "omp_transaction", tcc_statement, 2)
+   Operand 1: OMP_TRANSACTION_OBJECTS: List of resolved object declarations.
+   Operand 2: OMP_TRANSACTION_PLAN: Unevaluated canonical access/call plan. */
+DEFTREECODE (OMP_TRANSACTION, "omp_transaction", tcc_statement, 3)
 
 /* OpenMP - #pragma omp master
    Operand 0: OMP_MASTER_BODY: Master section body.  */

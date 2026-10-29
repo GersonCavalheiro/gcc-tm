@@ -710,6 +710,15 @@ struct GTY((tag("GSS_OMP_TASK")))
 };
 
 
+/* Non-executable canonical identity/offset recipes, removed by omplower.
+   The plan does not evaluate indexes or activate the transactional ABI. */
+struct GTY((tag("GSS_OMP_TRANSACTION")))
+  gomp_transaction : public gimple_statement_omp
+{
+  tree objects;
+  tree plan;
+};
+
 /* GIMPLE_OMP_SECTION */
 /* Uses struct gimple_statement_omp.  */
 
@@ -1597,7 +1606,19 @@ gomp_task *gimple_build_omp_task (gimple_seq, tree, tree, tree, tree,
 				       tree, tree);
 gimple *gimple_build_omp_section (gimple_seq);
 gimple *gimple_build_omp_structured_block (gimple_seq);
-gimple *newtm_build_transaction (gimple_seq);
+gimple *newtm_build_transaction (gimple_seq, tree = NULL_TREE, tree = NULL_TREE);
+
+inline tree *
+newtm_transaction_objects_ptr (gimple *stmt)
+{
+  return &((gomp_transaction *) stmt)->objects;
+}
+
+inline tree *
+newtm_transaction_plan_ptr (gimple *stmt)
+{
+  return &((gomp_transaction *) stmt)->plan;
+}
 gimple *gimple_build_omp_scope (gimple_seq, tree);
 gimple *gimple_build_omp_dispatch (gimple_seq, tree);
 gimple *gimple_build_omp_interop (tree);

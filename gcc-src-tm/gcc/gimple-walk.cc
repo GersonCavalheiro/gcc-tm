@@ -323,6 +323,11 @@ walk_gimple_op (gimple *stmt, walk_tree_fn callback_op,
       }
       break;
 
+    /* Transaction identity recipes are not executable operands.  Their
+       declarations are remapped explicitly when copying the region. */
+    case GIMPLE_OMP_TRANSACTION:
+      break;
+
     case GIMPLE_OMP_CRITICAL:
       {
 	gomp_critical *omp_stmt = as_a <gomp_critical *> (stmt);

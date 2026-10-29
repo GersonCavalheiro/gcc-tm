@@ -1,3 +1,194 @@
+## Falha, descarte e retry no runtime interno — 2026-10-29
+
+Decisões vigentes, estado das propostas e condições para extensões futuras:
+[registro central dos agentes](OPENMP_TRANSACTION_DECISIONS.md).
+
+
+Escopo confirmado pelo usuário: manter esta etapa no runtime interno, com blocos
+explicitamente preparados. O compilador e a ponte GOMP não foram integrados.
+
+`newtm_execute(body, argument)`, privado em newtm-context.h, controla a região
+externa inteira: adquire lease/contexto novo, invoca o corpo preparado uma vez,
+confere status efetivo e balanceamento de nesting e confirma somente tentativa
+ACTIVE de profundidade um. Em falha usa exatamente um epílogo consumidor.
+Conflito limpo reinicia na admissão/entrada do corpo inteiro, incluindo registros,
+temporários automáticos e funções aninhadas preparadas, nunca no acesso interno.
+O contador pertence ao controle externo e satura em SIZE_MAX. OK só após commit
+e limpeza completos; INVALID ou tags desconhecidas nunca autorizam repetição.
+
+`newtm_after_failure(slot, attempt)` salva causa/diagnóstico por valor, descarta
+todos os níveis e só então faz diagnóstico fatal de INVALID ou backoff de
+CONFLICT. Causa permanente domina conflito e um OK fictício do callback. Entrada
+ACTIVE, conflito com contador zero ou nesting não balanceado são uso permanente
+inválido; com contexto válido, limpar antes de fatal. Slots inválidos/alheios e
+reentrada em publicação/teardown são violações sem limpeza especulativa.
+`newtm_backoff` implementa espera ativa portátil via cpu_relax: 64 iterações na
+primeira espera, crescimento exponencial até 65536, com clamp antes do shift.
+Zero retorna INVALID; SIZE_MAX continua limitado. Sem locks, alocações, estado
+global de contagem, escalonamento de tarefas ou garantia de justiça/progresso.
+
+O callback recebe contexto emprestado, registra/acessa objetos explicitamente,
+verifica cada status e propaga falhas antes de consumir resultados. Não pode
+consumir o slot externo, reentrar no executor, guardar ponteiros privados além
+da tentativa, lançar exceções/longjmp ou produzir efeitos externos. Argument é
+entrada/controle estável do chamador, não um resultado especulativo que o runtime
+possa restaurar. Resultados do programa são publicados nos objetos registrados.
+Regiões internas compartilham o mesmo contexto; sucesso deve balancear begin/end.
+
+Testes permanentes: check-retry inclui check-failure. Retry usa conflito real em
+função aninhada e pausa o concorrente até a limpeza da primeira tentativa; prova
+reexecução do prefixo externo, registros recriados e uma liberação por referência/
+lease em cada tentativa. Failure executa dez processos, verifica fatal depois de
+limpeza, INVALID dominante, tags desconhecidas, nesting inválido e consumo duplo
+recusado sem segunda limpeza. Teste instrumenta contadores/slots somente para
+observação, sem ampliar os efeitos admitidos no código do programa.
+
+Não há retry automático do #pragma omp transaction nesta entrega; geração de
+código preparado, propagação no compilador e integração da ponte continuam
+pendentes. Nenhuma nova ABI pública GOMP foi introduzida.
+
+## Confirmação externa implementada — 2026-10-29
+
+`newtm_end` externo agora valida todos os registros e suas reservas antes de
+PUBLISHING. Confere identidade, representação escalar/agregada, intervalos
+normalizados e independentes, modified contido em valid, buffer presente quando
+necessário e reserva compatível. As verificações de metadados usam visitas curtas
+sob cada bucket; reservas próprias permanecem estáveis depois de desbloquear.
+Erro anterior à publicação preserva slot, profundidade e recursos para descarte
+explícito. Tentativa condenada não publica; saída interna só reduz profundidade.
+
+Depois da validação, ACTIVE -> PUBLISHING é irrevogável. Não há alocação ou
+retorno de erro recuperável nessa fase: copia escalares modificados e somente
+intervalos modificados de agregados. Objetos/faixas não modificados não são
+acessados. TODAS as reservas são mantidas até terminar TODAS as cópias. Em seguida,
+o teardown compartilhado com discard marca CLOSED, desliga o slot, retira
+reservas, libera referências/buffers/listas/contexto e solta a lease por último.
+OK somente após a limpeza completa; falha estrutural na limpeza é fatal.
+
+`make -C transaction_test -B check-commit` verifica confirmação vazia, escalar,
+aninhamento, leitores compartilhados, slot copiado, intervalos modificados com
+páginas vizinhas inacessíveis, objetos somente leitura/sem acesso e validação
+recusada sem publicação parcial. Wrappers restritos ao teste pausam depois da
+primeira cópia: duas tentativas por objeto ainda conflitam em read e write.
+Verificam ausência de alocação depois da primeira cópia, slot desligado antes
+de releases e tabela drenada antes da última liberação da lease.
+
+Vida útil, escrita permitida nas faixas modificadas e objetos disjuntos continuam
+pré-condições. A ponte GOMP ainda descarta seu contexto de rastreamento e não
+chama confirmação externa; integração no compilador/ponte, backoff e retry
+continuam pendentes. Nenhuma nova ABI ou suporte de linguagem foi introduzido.
+
+## Contrato de acessos read/write consolidado — 2026-10-29
+
+O caminho comum newtm_prepare_access agora valida contexto proprietário/estado,
+registro, faixa e buffer, e obtém a reserva antes de entregar o registro ao
+caminho de cópia. Read observa a visão privada, incluindo escritas anteriores;
+write não altera a memória original. O suporte aos valores já foi implementado
+na etapa anterior; esta entrega consolida entrada, diagnóstico e aceitação.
+
+Conflitos em subacessos registram object/offset/size da operação solicitada,
+em vez da extensão inteira do objeto. Chamadas posteriores em tentativa já
+condenada preservam a primeira causa e sua faixa. Em erro, destino de leitura,
+origem de escrita, dados privados anteriores e memória original são preservados;
+reservas/referências preexistentes permanecem para descarte explícito.
+
+`make -C transaction_test -B check-access` inclui check-values e uma nova matriz
+com 20 casos para cada operação: contexto nulo/alheio/condenado/não ativo,
+profundidade inválida, objeto ausente, tamanho/offset inválidos ou extremos e
+sobreposição com objetos e armazenamento interno conhecido. Verifica também
+conflitos em subfaixas sem perder escritas privadas anteriores de outro objeto,
+sem produzir resultados ou registros de dados parciais. Estados/depth artificiais
+são restaurados somente nos testes para permitir o descarte real dos recursos.
+
+Validade/vida útil/extensão real dos ponteiros e aliases fora do contexto seguem
+pré-condições; OOM continua fatal. Não há nova ABI, integração com GOMP/compilador,
+publicação, commit ou retry nesta etapa.
+
+## Valores privados e intervalos implementados — 2026-10-29
+
+`newtm_read/write` agora operam sobre valores privados usando as reservas
+internas existentes. Escalares exigem offset zero e tamanho integral, com buffer
+sob demanda e flags valid/modified. Leitura carrega uma vez; escrita substitui
+somente a representação privada, sem ler o original. Leituras posteriores
+observam as escritas da tentativa, inclusive no aninhamento.
+
+Agregados alocam buffer de extensão completa sem inicialização integral.
+Read copia do original somente lacunas da faixa solicitada, sob reserva, sem
+sobrescrever intervalos já válidos. Write copia somente source para a faixa e
+não lê o original. Listas válidas/modificadas independentes representam uniões
+normalizadas de intervalos [begin,end), ordenados, disjuntos, com adjacentes
+unidos; modificados são sempre válidos. Nós e buffer são preparados antes de
+alterar bytes/listas; não há falha retornável depois de começar a cópia.
+
+Owner/estado, registro, limites por subtração, tamanho integral de escalares e
+aliases verificáveis do buffer privado são checados antes das reservas/cópias.
+CONFLICT/INVALID preservam destino de read e escritas anteriores, mantendo
+recursos para descarte. OOM continua fatal. Extensão/vida útil real dos buffers,
+aliases fora do contexto e validação de tipos/const/volatile/atômicos continuam
+pré-condições do chamador/compilador. Diagnósticos, alocações e cópias ficam fora
+dos mutexes. Descarte libera buffers/listas sem publicar valores.
+
+Teste permanente `make -C transaction_test -B check-values`: 500 operações contra
+modelo em bytes, formas de união/adjacência, páginas PROT_NONE ao redor de um
+campo, leitura de caches após proteger o original, escrita sem leitura original,
+falhas preservando dados/listas e duas threads com leitores, conflito e promoção
+em 32 rodadas. A ponte GOMP/compilador continua sem chamar esses acessos; commit,
+publicação, backoff e retry permanecem pendentes. A entrega não ativa STM nos
+programas compilados nem amplia o subconjunto de linguagem.
+
+## Metadados e reservas internos implementados — 2026-10-29
+
+`newtm_reserve(ctx, object, mode)`, declarado privadamente em newtm-context.h,
+retorna enum newtm_access_status e exige contexto proprietário ACTIVE e objeto
+já registrado. READ e WRITE são os únicos modos solicitáveis. A função traduz
+estados/status explicitamente; desconhecidos, objeto não registrado e modo
+inválido condenam a tentativa válida com INVALID. Tentativa já condenada conserva
+a causa; contexto alheio é recusado sem alteração.
+
+A primeira solicitação cria metadados sob demanda: visita inicial identifica
+ausência, candidato zerado é alocado fora do bucket, segunda visita revalida e
+instala um único candidato. Concorrentes liberam candidatos excedentes fora do
+mutex. Não há alocação, espera, E/S ou acesso a valores dentro do callback.
+OOM permanece fatal. Registro continua sem criar metadados ou obter reservas.
+
+A visita concede leitura compartilhada e escrita exclusiva, reutiliza reservas
+próprias sem duplicar leitores ou rebaixar WRITE e promove READ para WRITE
+somente quando o registro é o único leitor. Conflito condena apenas a solicitante;
+promoção recusada preserva READ até descarte explícito. As reservas persistem
+até limpeza; descarte remove participações sob o bucket, e a última referência
+destrói metadados fora dele, com lease ainda ativa. Nenhum mutex acompanha o corpo.
+
+Teste `make -C transaction_test -B check-reservations`: matriz de conflitos,
+promoção, nesting, descarte, estados/argumentos inválidos, página PROT_NONE e
+quatro threads em 16 rodadas por modo. Interposição restrita ao teste força a
+preparação concorrente de quatro candidatos antes da instalação, sem hooks no
+runtime. O teste inspeciona os metadados somente em entry_visit. A interface
+permanece oculta na DSO. Read/write continuam stubs; não há cópia de valores,
+commit, retry ou integração com a ponte GOMP/compilador nesta entrega.
+
+## Registro STM por tentativa implementado — 2026-10-29
+
+`newtm_register` agora valida contexto proprietário/estado, endereço não nulo,
+tamanho positivo e kind explícito. Mantém lista linear de registros estáveis por
+tentativa, compartilhada pelo aninhamento, e uma referência física à hash por
+objeto canônico distinto. Repetição do mesmo endereço/tamanho/kind é idempotente;
+incompatibilidade condena a tentativa com INVALID. Falhas retornáveis da hash
+não vinculam candidatos nem deixam referências adicionais; depth é preservado.
+A primeira causa permanente é conservada para limpeza e diagnóstico externo.
+
+Registro não lê valores, não cria buffers/metadados de política nem adquire
+reservas. Descarte libera os registros/referências. OOM continua fatal. A ponte
+GOMP mantém seu registro de rastreamento separado: classificação e integração no
+compilador/ponte, reservas, read/write, publicação e retry continuam pendentes.
+Kind é validado nas duplicatas desta tentativa; a hash verifica tamanho por
+endereço exato e não detecta sobreposições entre objetos distintos.
+
+Contrato executável: `libgomp/newtm-transaction.h` e `newtm-transaction.c`.
+Teste permanente: `make -C transaction_test -B check-register`, com identidade,
+deduplicação aninhada, referências entre contextos, página PROT_NONE sem leitura,
+ausência de reservas/buffers/metadados e falhas de tamanho/kind/overflow sem
+registros parciais. As seções anteriores a esta entrega mantêm relatos históricos.
+
 ## Contexto: criação e limpeza implementadas — 2026-10-28
 
 Estruturas concretas em [newtm-context.h](libgomp/newtm-context.h), privadas à

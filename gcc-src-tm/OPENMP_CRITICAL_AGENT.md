@@ -1,5 +1,47 @@
 # Agente especializado no tratamento de `critical` no GCC
 
+## Etapa 2 de geração de código — estado vigente
+
+[Descritores de registro e identidade](OPENMP_TRANSACTION_DESCRIPTORS.md)
+implementados em High GIMPLE: chave lógica original, extensão, deslocamento,
+kind e validade estrutural/de faixa, usando operandos avaliados e aritmética
+checada. Referência a elemento preserva extensão/kind do elemento registrado.
+Parâmetros/resultados ainda dependentes da ABI usam canais explícitos, sem
+inventar identidade ou sucesso. Unknown/source-only/stale exigem resolução ou
+rejeição pelo consumidor futuro; nunca fallback à memória comum.
+Descritores são retirados na entrada de omplower; cópias exigem reconstrução.
+Temporários ficam no BIND da região OpenMP correspondente. O pragma permanece
+de rastreamento: faltam ABI executável, clones, acessos STM e epílogos. Ver o
+contrato para limites e testes; este estado atualiza as pendências históricas.
+
+
+## Decisões específicas de transaction — 2026-10-29
+
+Consultar o [registro vigente e extensões futuras](OPENMP_TRANSACTION_DECISIONS.md)
+e o [agente de projeto](OPENMP_TRANSACTION_PROJECT_AGENT.md) ao trabalhar na
+extensão transaction. A avaliação mais recente de F01 está no [relatório de prontidão](OPENMP_TRANSACTION_INTEGRATION_READINESS.md):
+o usuário autorizou avaliar e implementar se viável, mas os bloqueios técnicos
+identificados ainda impedem ativar a integração com as garantias solicitadas.
+Diagnósticos/plano canônico estão no compilador; o runtime STM é exercitado por
+interfaces internas e corpos explicitamente preparados.
+
+`critical` dentro de transaction é efeito OpenMP rejeitado pelo subconjunto.
+Os exemplos podem usar critical externo enquanto a ponte só rastreia; isso não
+prova isolamento STM nem autoriza locks do programa em uma tentativa. Manter a
+semântica própria de critical e não usá-lo como substituto da futura integração.
+Extensões de linguagem, outros targets e Fortran seguem F05–F09 e precisam de
+escopo/contratos próprios.
+
+## Etapa 1 de geração de código concluída — 2026-10-29
+
+Os [vínculos de ocorrências](OPENMP_TRANSACTION_OCCURRENCES.md) associam sites
+GENERIC às instruções e operandos GIMPLE emitidos, incluindo corpos de funções
+selecionadas para preparação. Consultar argumentos, índices, referências e
+resultados na instrução atual; nunca executar receitas do plano diagnóstico.
+Grupos conservam RMW; cópias recebem IDs novos; source-only não fornece valor
+avaliado. A janela termina antes de CFG/SSA. Essa etapa não ativa a ponte STM;
+descritores/kind, instrumentação, clones e epílogos continuam pendentes.
+
 ## Missão
 
 Você é um agente de análise e manutenção da diretiva OpenMP `critical` nesta

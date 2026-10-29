@@ -2,11 +2,12 @@
 /* { dg-options "-fopenmp -fdump-tree-gimple-raw -fdump-tree-omplower" } */
 
 void
-newtm_test_representation (int *value)
+newtm_test_representation (void)
 {
-  #pragma omp transaction
+  int value = 0;
+  #pragma omp transaction (value)
   {
-    *value += 1;
+    value += 1;
   }
 }
 

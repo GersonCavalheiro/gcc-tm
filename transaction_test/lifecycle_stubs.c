@@ -106,17 +106,18 @@ main (int argc, char **argv)
   assert (!pthread_join (thread, NULL));
   assert (ctx == copy && ctx->state == NEWTM_ATTEMPT_ACTIVE);
 
-  /* Unimplemented operations preserve their buffers/arguments and return no
-     fabricated success.  Explicit kind logging remains part of this test. */
+  /* Registration retains identity without reading values or reserving them.
+     Backoff remains unavailable.  Explicit kind logging is preserved. */
   int scalar = 42;
   unsigned char object[32]; memset (object, 0x33, sizeof object);
   assert (newtm_register (ctx, &scalar, sizeof scalar, NEWTM_OBJECT_SCALAR)
-          == NEWTM_LIFECYCLE_INVALID);
+          == NEWTM_LIFECYCLE_OK);
   assert (newtm_register (ctx, object, sizeof object, NEWTM_OBJECT_AGGREGATE)
-          == NEWTM_LIFECYCLE_INVALID);
+          == NEWTM_LIFECYCLE_OK);
   assert (newtm_register (NULL, NULL, 0, (enum newtm_object_kind) 99)
           == NEWTM_LIFECYCLE_INVALID);
-  assert (newtm_backoff (1) == NEWTM_LIFECYCLE_INVALID);
+  /* Exercise only invalid input here: positive backoff requires full discard. */
+  assert (newtm_backoff (0) == NEWTM_LIFECYCLE_INVALID);
   assert (scalar == 42 && object[0] == 0x33);
 
   ctx->depth = SIZE_MAX;
@@ -125,10 +126,9 @@ main (int argc, char **argv)
   assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
   assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
   assert (newtm_begin (&lease, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
-  /* Outer commit remains unavailable, even with no records. */
+  /* Empty outer confirmation completes cleanup and consumes the slot. */
+  assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
   assert (newtm_end (&ctx) == NEWTM_LIFECYCLE_INVALID);
-  assert (ctx && ctx->state == NEWTM_ATTEMPT_INVALID);
-  assert (newtm_discard (&ctx) == NEWTM_LIFECYCLE_OK && !ctx);
   assert (newtm_hash_owner_acquire (&lease) == NEWTM_HASH_OK);
   assert (newtm_begin (&lease, &ctx, &outer) == NEWTM_LIFECYCLE_OK);
 

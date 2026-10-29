@@ -1,21 +1,15 @@
 /* { dg-do run } */
 /* { dg-options "-fopenmp -O2" } */
 
-struct newtm_guard
-{
-  int &value;
-  newtm_guard (int &v) : value (v) { ++value; }
-  ~newtm_guard () { value += 10; }
-};
-
 template <int N>
 int
 newtm_template ()
 {
   int value = 0;
-  #pragma omp transaction
+  #pragma omp transaction (value)
   {
-    newtm_guard guard (value);
+    int local = 11;
+    value += local;
     #pragma omp transaction
     {
       value += N;

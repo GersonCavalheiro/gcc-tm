@@ -1674,7 +1674,13 @@ remap_gimple_stmt (gimple *stmt, copy_body_data *id)
 
 	case GIMPLE_OMP_TRANSACTION:
 	  s1 = remap_gimple_seq (gimple_omp_body (stmt), id);
-	  copy = newtm_build_transaction (s1);
+          {
+            tree objects = *newtm_transaction_objects_ptr (stmt);
+            tree plan = *newtm_transaction_plan_ptr (stmt);
+            walk_tree (&objects, copy_tree_body_r, id, NULL);
+            walk_tree (&plan, copy_tree_body_r, id, NULL);
+            copy = newtm_build_transaction (s1, objects, plan);
+          }
 	  break;
 
 	case GIMPLE_OMP_MASTER:

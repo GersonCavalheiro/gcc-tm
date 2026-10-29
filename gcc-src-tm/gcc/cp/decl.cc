@@ -20732,7 +20732,10 @@ finish_function (bool inline_p)
   /* Fold away non-ODR usages of constants so that we don't need to
      try and stream them in modules if they're internal.  */
   if (!processing_template_decl)
-    cp_fold_function_non_odr_use (fndecl);
+    {
+      if (flag_openmp) newtm_save_source_body (fndecl);
+      cp_fold_function_non_odr_use (fndecl);
+    }
 
   /* Save constexpr function body before it gets munged by
      the NRV transformation.   */

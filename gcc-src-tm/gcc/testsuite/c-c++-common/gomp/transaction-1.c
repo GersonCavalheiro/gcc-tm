@@ -5,7 +5,7 @@ int
 main (void)
 {
   int result = 0;
-  #pragma omp transaction
+  #pragma omp transaction (result)
   {
     int local = 2;
     for (int i = 0; i < 4; ++i)

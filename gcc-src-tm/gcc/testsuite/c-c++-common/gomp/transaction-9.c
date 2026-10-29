@@ -9,18 +9,18 @@ main (void)
 {
   int result = 0;
   int single = 0, alpha = 0, beta = 0, gamma = 0, delta = 0, epsilon = 0;
-  #pragma omp transaction (single)
+  #pragma omp transaction (single, result)
   { result++; }
-  #pragma omp transaction (TRANSACTION_NAMES)
+  #pragma omp transaction (TRANSACTION_NAMES, result)
   {
     #pragma omp transaction (alpha, alpha)
     { result += 2; }
   }
-  _Pragma ("omp transaction (delta, epsilon)")
+  _Pragma ("omp transaction (delta, epsilon, result)")
   { result += 4; }
   #pragma omp transaction
-  { result += 8; }
-  if (result != 15)
+  { int private_value = 8; (void) private_value; }
+  if (result != 7)
     __builtin_abort ();
   return 0;
 }

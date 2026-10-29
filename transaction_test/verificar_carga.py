@@ -45,8 +45,8 @@ for weights in ((1, 9), (1, 1), (9, 1)):
     expected = (threads, w, r, repetitions, total, writes, total - writes, writes)
     if len(matches) != 1 or tuple(map(int, matches[0])) != expected:
         raise SystemExit(f"FAIL: carga {ratio}: resultado divergente; consulte {path}")
-    for operation, count in (("create", 1), ("acquire", total),
-                             ("release", total), ("destroy", 1)):
+    for operation, count in (("create", 1), ("acquire", 4 * total),
+                             ("release", 4 * total), ("destroy", 1)):
         if log.count(f"[newtm] newtm_hash_{operation}:") != count:
             raise SystemExit(f"FAIL: carga {ratio}: contagem de {operation}; consulte {path}")
     print(f"OK: carga {ratio}, threads={threads}, repetições={repetitions}, "

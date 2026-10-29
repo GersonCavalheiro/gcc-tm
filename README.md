@@ -1,3 +1,10 @@
+A etapa 1 da geração de código já vincula ocorrências aos operandos GIMPLE
+avaliados, sem ativar STM no pragma. Veja o [contrato e a validação](gcc-src-tm/OPENMP_TRANSACTION_OCCURRENCES.md).
+
+Diagnósticos do subconjunto e identidade canônica estão implementados; a ponte
+GOMP continua somente com rastreamento. Veja o [relatório da entrega](gcc-src-tm/OPENMP_TRANSACTION_SUBSET_REVIEW.md)
+e a [especificação da ABI interna](gcc-src-tm/OPENMP_TRANSACTION_ABI.md).
+
 # GCC-TM: extensão experimental OpenMP transaction
 
 Este projeto desenvolve uma extensão do GCC para memória transacional em
@@ -26,10 +33,21 @@ Consultas de endereço/tamanho e visita sincronizada de metadados também estão
 implementadas, assim como a contagem consistente e saturada de entradas.
 As nove primitivas da hash estão operacionais. Criação, aninhamento e limpeza do
 contexto também estão implementados, com transferência da lease e destrutor da
-política. Registro STM, acessos, confirmação e retry continuam pendentes. O corpo continua acessando memória
-comum, sem isolamento, commit, rollback ou retry. O exemplo concorrente usa
+política. Registro STM interno por tentativa já retém identidade, tamanho, kind
+e referência à hash, com deduplicação e sem ler valores ou adquirir reservas. Um helper
+interno separado cria metadados sob demanda e concede reservas compartilhadas
+de leitura, exclusivas de escrita e promoção de leitor único, sem acessar valores.
+Leituras/escritas internas já usam valores privados: escalares completos e
+agregados com faixas válidas/modificadas, sem ler todo o agregado para acessar
+um campo. No runtime interno, a confirmação externa já valida todos os registros
+antes de PUBLISHING e publica somente modificações, mantendo todas as reservas
+até concluir as cópias. Sucesso exige também terminar toda a limpeza. O executor interno de corpos explicitamente preparados já descarta falhas,
+emite fatal de INVALID após limpeza e repete o corpo externo inteiro em
+conflitos, com espera ativa progressiva limitada. A integração na ponte/compilador
+e o retry automático do pragma continuam pendentes. O corpo compilado continua acessando memória comum, sem isolamento, commit, rollback ou retry. O exemplo concorrente usa
 `critical` externo para sincronizar as atualizações. Passar nos testes atuais
-comprova os contratos de rastreamento/esqueletos, não uma STM funcional.
+comprova os contratos internos e de rastreamento, sem validar uma STM integrada
+ao compilador.
 
 ## Organização da árvore
 
@@ -409,3 +427,10 @@ contexto e rastreamento. Logs e relatório JSON ficam em
 `transaction_test/.build/checkpoint_contexto_pronto_para_registro/`.
 O [cabeçalho do teste](transaction_test/checkpoint_contexto_pronto_para_registro.py)
 delimita sua cobertura; aprovação não certifica isolamento ou STM funcional.
+
+A etapa 2 de geração de código materializa
+[descritores internos de identidade](gcc-src-tm/OPENMP_TRANSACTION_DESCRIPTORS.md)
+com objeto lógico, extensão, deslocamento, kind e verificação de limites sem
+wrap. `make -C transaction_test check-descritores` valida os campos gerados.
+A ponte GOMP continua de rastreamento; ABI executável, clones e instrumentação
+STM permanecem como próximas etapas.

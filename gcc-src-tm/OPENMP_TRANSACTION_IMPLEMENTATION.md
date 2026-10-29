@@ -1,3 +1,287 @@
+## Estado atual — diagnósticos e identidade, 2026-10-29
+
+Atualização posterior: [etapa 1 de vinculação de ocorrências implementada](OPENMP_TRANSACTION_OCCURRENCES.md),
+com operandos GIMPLE avaliados e sem ativação STM. As evidências da etapa estão
+nesse contrato; resultados históricos abaixo continuam restritos à sua entrega.
+
+
+Decisões vigentes, estado das propostas e condições para extensões futuras:
+[registro central dos agentes](OPENMP_TRANSACTION_DECISIONS.md).
+
+
+Esta atualização prevalece sobre os estados históricos abaixo. Diagnósticos e
+plano canônico estão implementados em `gcc/newtm-analysis.cc`; o runtime rejeita
+registros distintos sobrepostos globalmente, inclusive aquisições pendentes.
+O registro continua sem leitura de valores ou aquisição de reservas. Chamadas
+diretas com definição na unidade são validadas transitivamente e recebem plano
+de preparação; clones executáveis ainda não são gerados. Retornos por referência
+e ponteiros sem identidade demonstrável são rejeitados.
+
+A [ABI interna](OPENMP_TRANSACTION_ABI.md) está especificada, sem ativação da
+ponte funcional GOMP. O pragma mantém o rastreamento; STM, commit e retry funcionam
+pelas interfaces internas com corpos preparados explicitamente. Consulte o
+[relatório desta entrega](OPENMP_TRANSACTION_SUBSET_REVIEW.md) para limites e
+validação. As seções seguintes registram etapas anteriores, não pendências atuais.
+
+## Falha, descarte e retry no runtime interno — 2026-10-29
+
+Validação desta entrega no contêiner gcc-tm-register: libgomp reconstruída em
+PIC/não PIC com -Wall -Werror; check-retry/check-failure passaram com
+-O2 -Wall -Wextra -Werror. Check-commit, check-access (incluindo values),
+check-register, check-reservations e os oito alvos do checkpoint passaram com
+-O2 -Wall -Werror. ASan/UBSan com detecção de leaks e ThreadSanitizer passaram no
+retry concorrente final e nos dez processos de failure, com hash/contexto/mutex.c
+instrumentados e restante do archive local (-no-pie). Check-lifecycle valida
+visibilidade interna de newtm_execute/newtm_after_failure; o teste de backoff no
+contexto vivo foi substituído por validação de zero, sem espera. Nenhuma nova
+execução DejaGNU, injeção de OOM ou integração com o compilador nesta etapa.
+Evidências: transaction_test/.build/retry.log, failure-*.log e checkpoint; logs
+com sanitizadores em .build/newtm-failure-{asan,tsan}-*.log e, no contêiner,
+/tmp/newtm-retry-{asan,tsan}.log. Retry não promete justiça/progresso nem número
+máximo de tentativas; somente a espera por conflito tem teto.
+
+Escopo confirmado pelo usuário: manter esta etapa no runtime interno, com blocos
+explicitamente preparados. O compilador e a ponte GOMP não foram integrados.
+
+`newtm_execute(body, argument)`, privado em newtm-context.h, controla a região
+externa inteira: adquire lease/contexto novo, invoca o corpo preparado uma vez,
+confere status efetivo e balanceamento de nesting e confirma somente tentativa
+ACTIVE de profundidade um. Em falha usa exatamente um epílogo consumidor.
+Conflito limpo reinicia na admissão/entrada do corpo inteiro, incluindo registros,
+temporários automáticos e funções aninhadas preparadas, nunca no acesso interno.
+O contador pertence ao controle externo e satura em SIZE_MAX. OK só após commit
+e limpeza completos; INVALID ou tags desconhecidas nunca autorizam repetição.
+
+`newtm_after_failure(slot, attempt)` salva causa/diagnóstico por valor, descarta
+todos os níveis e só então faz diagnóstico fatal de INVALID ou backoff de
+CONFLICT. Causa permanente domina conflito e um OK fictício do callback. Entrada
+ACTIVE, conflito com contador zero ou nesting não balanceado são uso permanente
+inválido; com contexto válido, limpar antes de fatal. Slots inválidos/alheios e
+reentrada em publicação/teardown são violações sem limpeza especulativa.
+`newtm_backoff` implementa espera ativa portátil via cpu_relax: 64 iterações na
+primeira espera, crescimento exponencial até 65536, com clamp antes do shift.
+Zero retorna INVALID; SIZE_MAX continua limitado. Sem locks, alocações, estado
+global de contagem, escalonamento de tarefas ou garantia de justiça/progresso.
+
+O callback recebe contexto emprestado, registra/acessa objetos explicitamente,
+verifica cada status e propaga falhas antes de consumir resultados. Não pode
+consumir o slot externo, reentrar no executor, guardar ponteiros privados além
+da tentativa, lançar exceções/longjmp ou produzir efeitos externos. Argument é
+entrada/controle estável do chamador, não um resultado especulativo que o runtime
+possa restaurar. Resultados do programa são publicados nos objetos registrados.
+Regiões internas compartilham o mesmo contexto; sucesso deve balancear begin/end.
+
+Testes permanentes: check-retry inclui check-failure. Retry usa conflito real em
+função aninhada e pausa o concorrente até a limpeza da primeira tentativa; prova
+reexecução do prefixo externo, registros recriados e uma liberação por referência/
+lease em cada tentativa. Failure executa dez processos, verifica fatal depois de
+limpeza, INVALID dominante, tags desconhecidas, nesting inválido e consumo duplo
+recusado sem segunda limpeza. Teste instrumenta contadores/slots somente para
+observação, sem ampliar os efeitos admitidos no código do programa.
+
+Não há retry automático do #pragma omp transaction nesta entrega; geração de
+código preparado, propagação no compilador e integração da ponte continuam
+pendentes. Nenhuma nova ABI pública GOMP foi introduzida.
+
+## Confirmação externa implementada — 2026-10-29
+
+Validação desta entrega no contêiner gcc-tm-register: libgomp reconstruída em
+PIC/não PIC com -Wall -Werror; check-commit passou com
+-O2 -Wall -Wextra -Werror. Check-access (incluindo values), check-register,
+check-reservations e os oito alvos do checkpoint passaram com -O2 -Wall -Werror.
+ASan/UBSan com detecção de leaks e ThreadSanitizer passaram no teste commit
+final, com hash, contexto e mutex.c instrumentados e restante do archive local.
+A compilação dos sanitizadores usa -no-pie e -fno-builtin-memcpy para preservar
+a interposição de cópias no teste, sem hooks na produção. Check-lifecycle foi
+atualizado para confirmação externa vazia real e consumo único. Sem nova
+execução DejaGNU nem injeção de OOM nesta etapa. Logs em
+transaction_test/.build/commit.log e, no contêiner,
+/tmp/newtm-commit-{build,test,regressions,asan,tsan}.log.
+
+`newtm_end` externo agora valida todos os registros e suas reservas antes de
+PUBLISHING. Confere identidade, representação escalar/agregada, intervalos
+normalizados e independentes, modified contido em valid, buffer presente quando
+necessário e reserva compatível. As verificações de metadados usam visitas curtas
+sob cada bucket; reservas próprias permanecem estáveis depois de desbloquear.
+Erro anterior à publicação preserva slot, profundidade e recursos para descarte
+explícito. Tentativa condenada não publica; saída interna só reduz profundidade.
+
+Depois da validação, ACTIVE -> PUBLISHING é irrevogável. Não há alocação ou
+retorno de erro recuperável nessa fase: copia escalares modificados e somente
+intervalos modificados de agregados. Objetos/faixas não modificados não são
+acessados. TODAS as reservas são mantidas até terminar TODAS as cópias. Em seguida,
+o teardown compartilhado com discard marca CLOSED, desliga o slot, retira
+reservas, libera referências/buffers/listas/contexto e solta a lease por último.
+OK somente após a limpeza completa; falha estrutural na limpeza é fatal.
+
+`make -C transaction_test -B check-commit` verifica confirmação vazia, escalar,
+aninhamento, leitores compartilhados, slot copiado, intervalos modificados com
+páginas vizinhas inacessíveis, objetos somente leitura/sem acesso e validação
+recusada sem publicação parcial. Wrappers restritos ao teste pausam depois da
+primeira cópia: duas tentativas por objeto ainda conflitam em read e write.
+Verificam ausência de alocação depois da primeira cópia, slot desligado antes
+de releases e tabela drenada antes da última liberação da lease.
+
+Vida útil, escrita permitida nas faixas modificadas e objetos disjuntos continuam
+pré-condições. A ponte GOMP ainda descarta seu contexto de rastreamento e não
+chama confirmação externa; integração no compilador/ponte, backoff e retry
+continuam pendentes. Nenhuma nova ABI ou suporte de linguagem foi introduzido.
+
+## Contrato de acessos read/write consolidado — 2026-10-29
+
+Validação desta entrega no contêiner gcc-tm-register: libgomp reconstruída em
+PIC/não PIC com -Wall -Werror. Check-access (incluindo check-values) passou com
+-O2 -Wall -Wextra -Werror. Check-register, check-reservations e o checkpoint de
+oito alvos passaram com -O2 -Wall -Werror. ASan/UBSan com detecção de leaks e
+ThreadSanitizer passaram nas duas suítes access/values, com hash, contexto e
+mutex.c instrumentados, restante do archive local e -no-pie. Sem nova execução
+DejaGNU ou injeção de OOM. Evidências: transaction_test/.build/access.log,
+values.log e checkpoint_contexto_pronto_para_registro/resultado.json; logs dos
+sanitizadores no contêiner em /tmp/newtm-{access,values}-{asan,tsan}.log.
+
+O caminho comum newtm_prepare_access agora valida contexto proprietário/estado,
+registro, faixa e buffer, e obtém a reserva antes de entregar o registro ao
+caminho de cópia. Read observa a visão privada, incluindo escritas anteriores;
+write não altera a memória original. O suporte aos valores já foi implementado
+na etapa anterior; esta entrega consolida entrada, diagnóstico e aceitação.
+
+Conflitos em subacessos registram object/offset/size da operação solicitada,
+em vez da extensão inteira do objeto. Chamadas posteriores em tentativa já
+condenada preservam a primeira causa e sua faixa. Em erro, destino de leitura,
+origem de escrita, dados privados anteriores e memória original são preservados;
+reservas/referências preexistentes permanecem para descarte explícito.
+
+`make -C transaction_test -B check-access` inclui check-values e uma nova matriz
+com 20 casos para cada operação: contexto nulo/alheio/condenado/não ativo,
+profundidade inválida, objeto ausente, tamanho/offset inválidos ou extremos e
+sobreposição com objetos e armazenamento interno conhecido. Verifica também
+conflitos em subfaixas sem perder escritas privadas anteriores de outro objeto,
+sem produzir resultados ou registros de dados parciais. Estados/depth artificiais
+são restaurados somente nos testes para permitir o descarte real dos recursos.
+
+Validade/vida útil/extensão real dos ponteiros e aliases fora do contexto seguem
+pré-condições; OOM continua fatal. Não há nova ABI, integração com GOMP/compilador,
+publicação, commit ou retry nesta etapa.
+
+## Valores privados e intervalos implementados — 2026-10-29
+
+Validação desta entrega no contêiner gcc-tm-register: libgomp recompilada
+PIC/não PIC com -Wall -Werror; check-values passou com
+-O2 -Wall -Wextra -Werror; check-register, check-reservations e os oito alvos do
+checkpoint passaram com -O2 -Wall -Werror. ASan/UBSan com detecção de leaks e
+ThreadSanitizer passaram no teste values final, incluindo o cenário com duas
+threads, com hash/contexto/mutex.c instrumentados e restante do archive local
+(-no-pie). O verificador lifecycle confirma visibilidade interna de read/write.
+Não houve nova execução DejaGNU nem injeção de OOM nesta etapa. Logs permanentes
+do teste em transaction_test/.build/values.log; logs dos sanitizadores no
+contêiner em /tmp/newtm-values-{asan,tsan}.log.
+
+`newtm_read/write` agora operam sobre valores privados usando as reservas
+internas existentes. Escalares exigem offset zero e tamanho integral, com buffer
+sob demanda e flags valid/modified. Leitura carrega uma vez; escrita substitui
+somente a representação privada, sem ler o original. Leituras posteriores
+observam as escritas da tentativa, inclusive no aninhamento.
+
+Agregados alocam buffer de extensão completa sem inicialização integral.
+Read copia do original somente lacunas da faixa solicitada, sob reserva, sem
+sobrescrever intervalos já válidos. Write copia somente source para a faixa e
+não lê o original. Listas válidas/modificadas independentes representam uniões
+normalizadas de intervalos [begin,end), ordenados, disjuntos, com adjacentes
+unidos; modificados são sempre válidos. Nós e buffer são preparados antes de
+alterar bytes/listas; não há falha retornável depois de começar a cópia.
+
+Owner/estado, registro, limites por subtração, tamanho integral de escalares e
+aliases verificáveis do buffer privado são checados antes das reservas/cópias.
+CONFLICT/INVALID preservam destino de read e escritas anteriores, mantendo
+recursos para descarte. OOM continua fatal. Extensão/vida útil real dos buffers,
+aliases fora do contexto e validação de tipos/const/volatile/atômicos continuam
+pré-condições do chamador/compilador. Diagnósticos, alocações e cópias ficam fora
+dos mutexes. Descarte libera buffers/listas sem publicar valores.
+
+Teste permanente `make -C transaction_test -B check-values`: 500 operações contra
+modelo em bytes, formas de união/adjacência, páginas PROT_NONE ao redor de um
+campo, leitura de caches após proteger o original, escrita sem leitura original,
+falhas preservando dados/listas e duas threads com leitores, conflito e promoção
+em 32 rodadas. A ponte GOMP/compilador continua sem chamar esses acessos; commit,
+publicação, backoff e retry permanecem pendentes. A entrega não ativa STM nos
+programas compilados nem amplia o subconjunto de linguagem.
+
+## Metadados e reservas internos implementados — 2026-10-29
+
+Validação desta entrega no contêiner gcc-tm-register: libgomp reconstruída em
+PIC/não PIC com -Wall -Werror; check-reservations passou com
+-O2 -Wall -Wextra -Werror; check-register e os oito alvos do checkpoint passaram
+com -O2 -Wall -Werror. A visibilidade oculta de newtm_reserve é verificada pelo
+check-lifecycle. ASan/UBSan com detecção de leaks e ThreadSanitizer passaram no
+teste final, com hash, contexto e caminhos lentos dos mutexes instrumentados e
+restante do archive local (-no-pie). A primeira execução TSan sem instrumentar
+mutex.c relatou corrida no contador do owner; a execução com a instrumentação
+dos caminhos lentos de sincronização passou sem supressões. Sem nova execução
+DejaGNU. OOM permanece fatal e não foi injetado; a corrida determinística cobre
+a instalação de candidato único e a liberação dos três excedentes por rodada.
+
+`newtm_reserve(ctx, object, mode)`, declarado privadamente em newtm-context.h,
+retorna enum newtm_access_status e exige contexto proprietário ACTIVE e objeto
+já registrado. READ e WRITE são os únicos modos solicitáveis. A função traduz
+estados/status explicitamente; desconhecidos, objeto não registrado e modo
+inválido condenam a tentativa válida com INVALID. Tentativa já condenada conserva
+a causa; contexto alheio é recusado sem alteração.
+
+A primeira solicitação cria metadados sob demanda: visita inicial identifica
+ausência, candidato zerado é alocado fora do bucket, segunda visita revalida e
+instala um único candidato. Concorrentes liberam candidatos excedentes fora do
+mutex. Não há alocação, espera, E/S ou acesso a valores dentro do callback.
+OOM permanece fatal. Registro continua sem criar metadados ou obter reservas.
+
+A visita concede leitura compartilhada e escrita exclusiva, reutiliza reservas
+próprias sem duplicar leitores ou rebaixar WRITE e promove READ para WRITE
+somente quando o registro é o único leitor. Conflito condena apenas a solicitante;
+promoção recusada preserva READ até descarte explícito. As reservas persistem
+até limpeza; descarte remove participações sob o bucket, e a última referência
+destrói metadados fora dele, com lease ainda ativa. Nenhum mutex acompanha o corpo.
+
+Teste `make -C transaction_test -B check-reservations`: matriz de conflitos,
+promoção, nesting, descarte, estados/argumentos inválidos, página PROT_NONE e
+quatro threads em 16 rodadas por modo. Interposição restrita ao teste força a
+preparação concorrente de quatro candidatos antes da instalação, sem hooks no
+runtime. O teste inspeciona os metadados somente em entry_visit. A interface
+permanece oculta na DSO. Read/write continuam stubs; não há cópia de valores,
+commit, retry ou integração com a ponte GOMP/compilador nesta entrega.
+
+## Registro STM por tentativa implementado — 2026-10-29
+
+Validação desta entrega no contêiner `gcc-tm-register` (imagem local gcc-tm):
+libgomp recompilada em PIC/não PIC com -Wall -Werror; check-register e
+check-lifecycle passaram com -O2 -Wall -Werror; os oito alvos de
+check-checkpoint-contexto passaram. ASan/UBSan com detecção de leaks passou no
+teste register, instrumentando newtm-hash.c e newtm-transaction.c e ligando o
+restante do archive local (-no-pie requerido pelo archive). A primeira tentativa
+de link dos sanitizadores sem -no-pie foi recusada pelo linker; corrigida sem
+mudança de código. Não houve nova execução DejaGNU. Check-register cobre falhas
+retornáveis; OOM permanece fatal e não foi injetado nesta entrega. Nenhuma nova
+ABI pública GOMP ou instrumentação de acesso foi introduzida.
+
+`newtm_register` agora valida contexto proprietário/estado, endereço não nulo,
+tamanho positivo e kind explícito. Mantém lista linear de registros estáveis por
+tentativa, compartilhada pelo aninhamento, e uma referência física à hash por
+objeto canônico distinto. Repetição do mesmo endereço/tamanho/kind é idempotente;
+incompatibilidade condena a tentativa com INVALID. Falhas retornáveis da hash
+não vinculam candidatos nem deixam referências adicionais; depth é preservado.
+A primeira causa permanente é conservada para limpeza e diagnóstico externo.
+
+Registro não lê valores, não cria buffers/metadados de política nem adquire
+reservas. Descarte libera os registros/referências. OOM continua fatal. A ponte
+GOMP mantém seu registro de rastreamento separado: classificação e integração no
+compilador/ponte, reservas, read/write, publicação e retry continuam pendentes.
+Kind é validado nas duplicatas desta tentativa; a hash verifica tamanho por
+endereço exato e não detecta sobreposições entre objetos distintos.
+
+Contrato executável: `libgomp/newtm-transaction.h` e `newtm-transaction.c`.
+Teste permanente: `make -C transaction_test -B check-register`, com identidade,
+deduplicação aninhada, referências entre contextos, página PROT_NONE sem leitura,
+ausência de reservas/buffers/metadados e falhas de tamanho/kind/overflow sem
+registros parciais. As seções anteriores a esta entrega mantêm relatos históricos.
+
 ## Checkpoint contexto_pronto_para_registro — 2026-10-28
 
 Criado teste agregador com cabeçalho de cobertura e limites, alvo

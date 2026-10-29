@@ -1643,6 +1643,9 @@ OBJS = \
 	omp-offload.o \
 	omp-expand.o \
 	omp-general.o \
+	newtm-analysis.o \
+	newtm-occurrence.o \
+	newtm-descriptor.o \
 	omp-low.o \
 	omp-oacc-kernels-decompose.o \
 	omp-oacc-neuter-broadcast.o \
@@ -3137,6 +3140,9 @@ GTFILES = $(CPPLIB_H) $(srcdir)/input.h $(srcdir)/coretypes.h \
   $(srcdir)/omp-offload.h \
   $(srcdir)/omp-general.h \
   $(srcdir)/omp-general.cc \
+  $(srcdir)/newtm-analysis.cc \
+  $(srcdir)/newtm-occurrence.cc \
+  $(srcdir)/newtm-descriptor.cc \
   $(srcdir)/omp-low.cc \
   $(srcdir)/targhooks.cc $(out_file) $(srcdir)/passes.cc \
   $(srcdir)/cgraphclones.cc \

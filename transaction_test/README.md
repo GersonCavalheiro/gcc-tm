@@ -1,3 +1,154 @@
+## Vínculos de ocorrências na gimplificação
+
+`make -C transaction_test check-ocorrencias` verifica avaliação única e os
+metadados `newtm-bind` nos dumps High GIMPLE, sem ativar STM no pragma.
+Inclui C/C++ em O0/O2, RMW, argumentos com efeitos, ponteiros/referências,
+agregados e parallel. Um plugin de teste compilado com g++ força GC e verifica
+cópias com operandos alterados, sem inseri-las no programa. Requer os headers e
+o suporte a plugins do build GCC local. Comandos, logs, dumps e resultado.json
+ficam em `.build/occurrences/`; timeout de 60s por compilação e 30s por execução.
+O [contrato da etapa 1](../gcc-src-tm/OPENMP_TRANSACTION_OCCURRENCES.md) explica
+proveniência, operandos atuais, âncoras source-only e a janela anterior a CFG/SSA.
+
+## Exemplos funcionais com o runtime interno
+
+[transaction_interno_simples.c](transaction_interno_simples.c) executa uma região
+OpenMP parallel: cada thread faz cem incrementos transacionais de uma única
+variável compartilhada. Ao final, verifica `valor == threads * 100`.
+
+[transaction_interno_carga.c](transaction_interno_carga.c) é o equivalente STM de
+transaction_carga.c: aceita `THREADS ESCRITAS:LEITURAS REPETICOES`, conserva a
+sequência ponderada e verifica a invariância `inverse == ~value`. Registra o
+agregado inteiro e acessa seus dois campos separadamente com offsetof/read/write.
+Somente operações confirmadas entram nos contadores de leituras/escritas.
+
+Ambos usam corpos explicitamente preparados para `newtm_execute`, com registro,
+visão privada, reservas, commit, descarte e retry reais. Cada status de acesso é
+traduzido explicitamente para lifecycle e propagado antes de consumir resultados.
+O executor repete o corpo inteiro em conflito; temporários são recriados. Não há
+critical ou E/S nos callbacks. No teste de carga, o descritor passado ao executor
+é entrada/controle estável e não recebe resultados especulativos. Os objetos
+compartilhados só são inspecionados diretamente depois do término da região
+paralela; então o proprietário da hash é fechado explicitamente.
+
+Para compilar e executar no ambiente do build, a partir da raiz:
+
+```sh
+make -C transaction_test exemplos-internos
+OMP_NUM_THREADS=4 transaction_test/.build/transaction_interno_simples > /tmp/interno-simples.log
+transaction_test/.build/transaction_interno_carga 4 1:9 1000 > /tmp/interno-carga.log
+make -C transaction_test check-internos INTERNO_REPETICOES=1000
+```
+
+O compilador local e os caminhos aceitam GCC_BUILD/TRANSACTION_CC como os demais
+alvos. A compilação usa -fopenmp; a ligação é uma etapa separada, sem -fopenmp,
+com o archive local libgomp.a e -pthread. Isso dá acesso aos símbolos hidden sem
+exportá-los e evita acrescentar uma segunda libgomp compartilhada pelo driver.
+Não há ativação da integração STM do pragma.
+
+`all` inclui os dois programas; `check` inclui `check-internos`. O alvo específico
+verifica o contador com 1/2/4 threads por padrão, a carga com uma e CARGA_THREADS
+threads nas proporções 1:9, 1:1, 9:1, 0:1 e 1:0, além de argumentos inválidos.
+INTERNO_REPETICOES tem padrão 100; CARGA_THREADS tem padrão 4. Logs ficam em
+`.build/interno-*.log`, com timeout de 60 segundos por execução. Não se exige um
+número específico de conflitos: o escalonamento é variável. Confere-se balanço
+de referências entre todas as tentativas e fechamento único da hash. Os logs
+internos são verbosos e não constituem medição de desempenho.
+
+Verificação desta entrega: -O2 -Wall -Wextra -Werror, contador com 1/2/4 threads
+e cargas com 1/4 threads, mil operações por thread nas cinco proporções. Ligação
+conferida sem dependência da DSO libgomp do sistema.
+
+## Diagnósticos, identidade e sobreposição
+
+`make -C transaction_test check-subset` compila a matriz C/C++ em O0/O2,
+executa casos de índice avaliado uma vez com/sem LTO e verifica planos GIMPLE.
+Resultados e comandos ficam em `.build/subset/resultado.json`; os logs são
+separados por caso. Os planos não ativam execução STM no pragma.
+
+`make -C transaction_test -B check-overlap` testa adjacência, incompatibilidade,
+sobreposições nas duas ordens, deduplicação, aquisição pendente concorrente,
+32 disputas de admissão e remoção do índice em commit/descarte.
+
+`python3 transaction_test/verificar_regressao_compilador.py gcc-build` compila e
+executa os casos existentes da extensão. É alternativa de verificação direta
+quando DejaGNU não está disponível: não interpreta os scans Tcl de dg-final.
+Os exemplos da ponte usam critical externo e listam também os dados preexistentes locais.
+A carga de rastreamento já não mantém registros concorrentes dentro do critical;
+a concorrência da hash e do índice é verificada pelos testes internos separados.
+
+## Falha, descarte e retry de corpos preparados
+
+`make -C transaction_test -B check-retry` usa a libgomp reconstruída e inclui
+check-failure; aceita GCC_BUILD. Logs `.build/retry.log` e `.build/failure-*.log`.
+Timeout de 60s no retry e 10s por processo de falha. O teste de retry cria conflito
+real dentro de função aninhada, aguarda limpeza antes de liberar o concorrente
+e verifica reexecução do corpo externo inteiro e liberação única de referências/
+leases. Os dez processos de failure verificam fatal após limpeza e ausência de
+retry de INVALID, incluindo status falso/desconhecido e nesting não balanceado.
+Os wrappers são exclusivos dos testes e não acrescentam hooks ao runtime.
+
+O executor newtm_execute é privado e recebe corpo explicitamente preparado:
+registro, read/write e propagação de status são manuais. A assinatura está em
+newtm-context.h. Não testa nem ativa retry do pragma compilado. Backoff é espera
+ativa progressiva com teto, sem unidades de tempo ou garantia de progresso.
+
+## Confirmação externa
+
+`make -C transaction_test -B check-commit` usa o archive local da libgomp
+reconstruída, aceita GCC_BUILD e grava `.build/commit.log` (timeout de 60s).
+Cobre publicação escalar/parcial de agregados, ausência de publicação em falhas,
+leitores compartilhados, nesting e limpeza completa. Wrappers de memcpy,
+alocadores e liberações, restritos ao teste, pausam entre duas publicações e
+confirmam conflito de read/write em ambos os objetos até terminar as cópias.
+Páginas protegidas detectam escrita de faixas não modificadas. O teste não integra
+a ponte GOMP, não testa retry e não injeta OOM ou ponteiros pendentes.
+
+## Aceitação dos acessos read/write
+
+`make -C transaction_test -B check-access` (a partir da raiz) executa check-values
+e a matriz em access.c contra a libgomp reconstruída; aceita GCC_BUILD. Timeout
+individual de 60 segundos, log `.build/access.log`. Cobre falhas de contexto,
+registro, limites e buffers para ambas as operações, preservação das escritas
+anteriores e do destino de leitura e diagnóstico da subfaixa conflitante. A
+matriz confere a memória original após cada erro e descarte. OOM é fatal e não
+é injetado por esse alvo. Ponteiros pendentes não são entradas de teste válidas.
+
+## Valores privados e intervalos
+
+`make -C transaction_test -B check-values` (a partir da raiz) usa o archive local
+da libgomp reconstruída; aceita GCC_BUILD. Timeout de 60 segundos, log em
+`.build/values.log`. Cobre armazenamento escalar, agregados parciais, uniões de
+intervalos válidos/modificados (inclusive adjacência), read-your-writes, nesting,
+limites/aliases conhecidos e falhas preservando dados. Um modelo de 500 operações
+confere cada faixa válida/modificada; páginas protegidas detectam leitura de
+campos vizinhos ou recarga indevida de dados já válidos. Duas threads verificam
+leitura compartilhada, falha de promoção e escrita privada após descarte do outro
+leitor, em 32 rodadas. Não testa publicação, retry ou integração com o compilador.
+
+## Metadados e reservas internos
+
+`make -C transaction_test -B check-reservations` (a partir da raiz) usa o archive
+local da libgomp reconstruída, aceita GCC_BUILD e grava `.build/reservations.log`
+com timeout de 60 segundos. Cobre criação sob demanda, leitores compartilhados,
+escritor exclusivo, promoção, conflitos, reuso, nesting e descarte. Quatro threads
+executam 16 rodadas por modo; --wrap=gomp_malloc_cleared, somente no executável de
+teste, força candidatos concorrentes antes da instalação e detecta alocação sob
+bucket por timeout. Página PROT_NONE garante ausência de acesso aos valores.
+O alvo é separado do checkpoint e não testa read/write, publicação ou retry.
+
+## Registro STM interno por tentativa
+
+`make -C transaction_test -B check-register` (a partir da raiz) usa o archive da
+libgomp reconstruída e os headers privados Linux x86_64. Aceita `GCC_BUILD`.
+Verifica identidade/tamanho/kind, deduplicação inclusive aninhada, referências
+compartilhadas entre contextos, descarte, contexto alheio/condenado e falhas sem
+registros parciais (incluindo overflow injetado/restaurado). Uma página PROT_NONE
+verifica que registrar não acessa valores; inspeções verificam ausência de
+reservas, buffers e metadados. Timeout de 60 segundos; log `.build/register.log`.
+O alvo é separado do checkpoint de oito alvos. Não valida acessos ou isolamento
+STM, nem integra o registro interno à ponte pública de rastreamento.
+
 # Exemplos da diretiva experimental transaction
 
 Execute neste diretorio:
@@ -246,3 +397,14 @@ aprovação exige os oito alvos concluídos com sucesso.
 Não verifica registro/acessos STM funcionais, isolamento, publicação ou retry.
 Registros de limpeza são preparados manualmente; a carga ainda usa critical.
 Sanitizadores e novos testes para lacunas do contexto não estão incluídos.
+
+## Descritores de identidade do compilador
+
+`make check-descritores` executa `verificar_descritores.py` com um plugin de teste
+em High GIMPLE. Verifica campos calculados, avaliação única, identidade lógica,
+kind/extensão de referências a elementos, limites por dimensão, índices extremos
+e overflow em C/C++ O0/O2, canais de chamadas e descarte de metadados/cópias.
+A sonda retorna antes do acesso inválido; essa proteção existe somente no teste.
+Não valida integração funcional STM do pragma. Contrato e limites em
+[descritores](../gcc-src-tm/OPENMP_TRANSACTION_DESCRIPTORS.md).
+Relatórios e logs ficam em `.build/descriptors/`.

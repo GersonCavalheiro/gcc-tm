@@ -7,7 +7,7 @@ newtm_test_critical_nesting (void)
   {
     #pragma omp transaction
     {
-      #pragma omp critical (lock) /* { dg-error "may not be nested" } */
+      #pragma omp critical (lock) /* { dg-error "may not be nested" } */ /* { dg-error "OpenMP effects" } */
       { }
     }
   }

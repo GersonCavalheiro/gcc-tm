@@ -24,7 +24,9 @@
 
 /* Internal access and lifecycle interfaces for the experimental runtime.
    Begin, fail and discard manage real contexts.  End handles nested exits only;
-   outer publication, register, access and backoff remain unavailable.
+   registration retains object identities; read/write operate on private values
+   under reservations.  Outer end publishes modified values and completes
+   cleanup.  Bounded progressive backoff follows a discarded conflict.
    Diagnostics are retained outside all runtime mutexes.  */
 
 #ifndef LIBGOMP_NEWTM_TRANSACTION_H
@@ -42,7 +44,7 @@ struct newtm_hash_owner_lease;
    Arrays and admitted aggregates use AGGREGATE, even with one scalar element.
    A listed pointer object uses SCALAR; this does not register its pointee.
    These tags do not validate language types or admit otherwise excluded types.
-   Values outside this enum are invalid under the future functional contract.
+   Values outside this enum are invalid under the registration contract.
    This is an internal interface, not a new language clause or public GOMP ABI.  */
 enum newtm_object_kind
 {
@@ -51,8 +53,8 @@ enum newtm_object_kind
 };
 
 /* Attempt states, not operation results.  Context storage is private in
-   newtm-context.h.  Begin/fail/discard implement transitions before publication;
-   PUBLISHING remains reserved for the future outer commit implementation.
+   newtm-context.h.  Begin/fail/discard handle unpublished attempts; outer end
+   implements ACTIVE -> PUBLISHING -> CLOSED, followed by complete teardown.
    See OPENMP_TRANSACTION_ABORT.md for the transition/ownership contract.
    INVALID is absorbing until discard; CONFLICTED may become INVALID.
    PUBLISHING is irrevocable, entered only after all fallible preparation.
@@ -76,8 +78,8 @@ enum newtm_access_status
 };
 
 /* Operation results, not context states.  Keep separate from access/hash
-   results; translate explicitly.  INVALID in current stubs means unavailable,
-   not validated arguments.  No stub ever reports success or retry.  */
+   results; translate explicitly.  INVALID denotes a detected permanent failure
+   or invalid invocation, never permission to retry. */
 enum newtm_lifecycle_status
 {
   NEWTM_LIFECYCLE_OK,
@@ -93,8 +95,8 @@ enum newtm_lifecycle_status
    Context slots are caller-owned, exclusive and valid for the call; OUTERMOST
    must not overlap slots, leases, contexts or program objects.  Keep the slot
    alive through all nesting and teardown.  The transferred lease protects table
-   lifetime.  Allocation failure is fatal.  Unimplemented operations still log
-   and return INVALID; they do not announce registration or publication.  */
+   lifetime.  Allocation failure is fatal.  Prepared external failure control
+   is private to newtm-context.h; no automatic compiler retry is implied. */
 
 /* Entry algorithm:
    1. Initialize writable OUTERMOST to false, validate SLOT/OUTERMOST.
@@ -118,7 +120,7 @@ extern enum newtm_lifecycle_status newtm_begin
    bool *outermost)
   __attribute__ ((visibility ("hidden")));
 
-/* Future registration: active owned CTX, nonnull canonical OBJECT, positive
+/* Registration: active owned CTX, nonnull canonical OBJECT, positive
    SIZE in bytes, compiler-validated KIND and supported lifetime through outer
    exit.  KIND describes the whole canonical registered object, not an accessed
    field/element.  Keep it immutable in that attempt's record; read/write obtain
@@ -128,16 +130,25 @@ extern enum newtm_lifecycle_status newtm_begin
    Context retains one hash reference per distinct object; identical duplicates
    are idempotent, incompatible size or kind is INVALID.  Unknown KIND is also
    INVALID.  A detected INVALID in a valid context propagates for safe cleanup
-   and then fatal diagnosis, never retry.  No reservation or value copy.
+   and then fatal diagnosis by outer control, never retry.  No reservation,
+   policy metadata, private value buffer or value copy is created here.
    Failure adds no partial record and preserves depth; a detected permanent
    error condemns valid CTX, an already conflicted attempt returns CONFLICT.
-   Stub: print all arguments, return INVALID, modify nothing.  */
+   Check ownership/state before argument validation; an already INVALID attempt
+   preserves its first permanent cause.  Hash SIZE_MISMATCH maps to incompatible
+   registration; other returned hash failures map to permanent invalid operation.
+   Allocate the candidate before hash acquisition; link only after success, with
+   one retained reference per record.  No fallible step follows acquisition.
+   The context's list spans all nested levels and is released by discard.
+   Keep depth unchanged on every return.  Logs remain outside runtime locks.
+   Exact keys do not detect overlaps between distinct canonical objects; kind
+   is compiler supplied and checked for duplicates within this attempt only. */
 extern enum newtm_lifecycle_status newtm_register
   (struct newtm_context *ctx, const void *object, size_t size,
    enum newtm_object_kind kind)
   __attribute__ ((visibility ("hidden")));
 
-/* Future normal exit: require matching active entry in owned *SLOT.
+/* Normal exit: require matching active entry in owned *SLOT.
    Inner OK only decrements depth.  Outer OK prepares resources, publishes all
    writes while retaining every reservation.  Enter PUBLISHING only after all
    fallible preparation; no return to ACTIVE/CONFLICTED/INVALID from there.
@@ -151,8 +162,16 @@ extern enum newtm_lifecycle_status newtm_register
    Condemn a valid owned context with the effective cause, retaining INVALID
    over CONFLICT.  A subsequent normal exit cannot confirm that attempt.
    Invalid context storage must not be touched.  No commit from a finally.
-   Current implementation only completes inner exits.  An ACTIVE outer end
-   marks INVALID and preserves resources: publication is not implemented.  */
+   Outer preparation validates every record's representation and normalized
+   interval lists (modified subset of valid, independent node ownership), then
+   verifies identity and reservation under each bucket.  No original values are
+   read.  The retained reservations remain stable after these short visits.
+   No allocation is needed for publication.  Copy modified scalars in full and
+   only modified intervals of aggregates; do not touch read-only/unused objects.
+   After ALL copies, consume the slot using the shared teardown with owner
+   release last.  Structural teardown failures are fatal, never recoverable.
+   Program objects must remain live, disjoint and writable in modified ranges;
+   pointer validity and language type constraints remain caller preconditions. */
 extern enum newtm_lifecycle_status newtm_end (struct newtm_context **slot)
   __attribute__ ((visibility ("hidden")));
 
@@ -192,36 +211,57 @@ extern enum newtm_lifecycle_status newtm_fail
 extern enum newtm_lifecycle_status newtm_discard (struct newtm_context **slot)
   __attribute__ ((visibility ("hidden")));
 
-/* Future retry-control helper, after complete discard for CONFLICT only.
+/* Retry-control helper, after complete discard for CONFLICT only.
    ATTEMPT is the positive consecutive-conflict count (first is 1), saturated
    by the caller at SIZE_MAX.  Require no reservations/mutexes or live use of
    discarded buffers.  OK follows a bounded progressive wait; INVALID for
    invalid input.  Never create a context, retry code or promise progress.
-   Delay units/formula remain an implementation choice, not this parameter's
-   units.  Stub: print ATTEMPT, return INVALID immediately without waiting.  */
+   Wait uses cpu_relax, 64 * 2^min(ATTEMPT-1,10) iterations (cap 65536).
+   These are relaxation iterations, not time units.  Clamp before shifting so
+   even SIZE_MAX is bounded.  Zero returns INVALID without waiting.  No mutable
+   global state, allocation, task scheduling or synchronization is introduced. */
 extern enum newtm_lifecycle_status newtm_backoff (size_t attempt)
   __attribute__ ((visibility ("hidden")));
 
-/* Future contract: read SIZE bytes at OFFSET in registered canonical OBJECT
+/* Read SIZE bytes at OFFSET in registered canonical OBJECT
    into private DESTINATION using active, owned CTX.  Require positive SIZE,
    valid nonoverlapping storage and an in-bounds range.  Obtain a compatible
    reservation before reading; observe this attempt's pending writes.
    On OK fill DESTINATION completely; on failure leave it unchanged.  Never
    publish data or release the attempt here.  No bucket lock escapes a return.
-   Current stub: print all parameters, return INVALID, modify nothing.  */
+   Scalar accesses require OFFSET=0 and the full registered size; cache the
+   value once, including pending writes.  Aggregates allocate their full extent
+   lazily, without initializing unrelated bytes.  Read only requested gaps in
+   the valid interval list; never reload valid bytes over previous writes.
+   Merge adjacent/overlapping valid ranges.  No change to modified ranges.
+   Validate bounds by subtraction and reject known aliases of the transport
+   buffer with this context's original objects/private runtime storage.  Actual
+   buffer extent/lifetime and aliases outside the context remain preconditions.
+   Allocate before filling the destination; OOM is fatal.  All diagnostics,
+   allocations and copies happen outside bucket locks.  The shared entry path
+   completes validation and reservation before returning a record to the copy
+   path.  Newly detected failures describe the requested object/offset/size;
+   subsequent calls preserve an already condemned attempt's first diagnostic. */
 extern enum newtm_access_status newtm_read (struct newtm_context *ctx,
 					  const void *object, size_t offset,
 					  void *destination, size_t size)
   __attribute__ ((visibility ("hidden")));
 
-/* Future contract: write SIZE bytes from private SOURCE at OFFSET in registered
+/* Write SIZE bytes from private SOURCE at OFFSET in registered
    canonical OBJECT using active, owned CTX.  Require positive SIZE, valid
    nonoverlapping storage, a writable supported type and an in-bounds range.
    Obtain an exclusive reservation before changing private data.  On OK update
    only this attempt's private view; on failure do not apply this operation,
    even partially.  Preserve SOURCE and original memory in all normal returns.
    Do not perform commit or full cleanup.  No bucket lock escapes a return.
-   Current stub: print all parameters, return INVALID, modify nothing.  */
+   Scalar accesses replace the full value and set valid/modified.  Aggregate
+   writes copy only the requested bytes and union the range into independent
+   valid/modified lists, sorted, disjoint and with adjacent intervals merged.
+   Never read original bytes, including when preparing a partial write.  Prepare
+   buffer and interval nodes before applying changes; OOM is fatal.  Validate
+   transport/bounds as for read.  Failure preserves earlier private writes;
+   no normal return publishes values or releases the attempt's reservations.
+   Language type/const/volatile/atomic checks remain compiler preconditions. */
 extern enum newtm_access_status newtm_write (struct newtm_context *ctx,
 					   const void *object, size_t offset,
 					   const void *source, size_t size)

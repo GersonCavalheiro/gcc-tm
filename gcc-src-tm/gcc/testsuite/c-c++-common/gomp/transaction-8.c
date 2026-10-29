@@ -5,20 +5,20 @@ int
 main (void)
 {
   int value = 0;
-  _Pragma ("omp transaction")
+  _Pragma ("omp transaction (value)")
   {
     value++;
   }
   #pragma omp critical
   {
-    #pragma omp transaction
+    #pragma omp transaction (value)
     {
       value += 2;
     }
   }
-  #pragma omp transaction
+  #pragma omp critical (newtm_lock)
   {
-    #pragma omp critical (newtm_lock)
+    #pragma omp transaction (value)
     {
       value += 4;
     }
