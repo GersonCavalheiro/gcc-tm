@@ -1646,6 +1646,19 @@ OBJS = \
 	newtm-analysis.o \
 	newtm-occurrence.o \
 	newtm-descriptor.o \
+	newtm-abi.o \
+	newtm-clone.o \
+	newtm-access.o \
+	newtm-obligation.o \
+	newtm-flow.o \
+	newtm-guard.o \
+	newtm-memory.o \
+	newtm-status.o \
+	newtm-lifetime.o \
+	newtm-failure.o \
+	newtm-owner.o \
+	newtm-current.o \
+	newtm-lto.o \
 	omp-low.o \
 	omp-oacc-kernels-decompose.o \
 	omp-oacc-neuter-broadcast.o \
@@ -3143,6 +3156,14 @@ GTFILES = $(CPPLIB_H) $(srcdir)/input.h $(srcdir)/coretypes.h \
   $(srcdir)/newtm-analysis.cc \
   $(srcdir)/newtm-occurrence.cc \
   $(srcdir)/newtm-descriptor.cc \
+  $(srcdir)/newtm-abi.cc \
+  $(srcdir)/newtm-clone.cc \
+  $(srcdir)/newtm-current.cc \
+  $(srcdir)/newtm-lto.cc \
+  $(srcdir)/newtm-access.cc \
+  $(srcdir)/newtm-obligation.cc \
+  $(srcdir)/newtm-guard.cc \
+  $(srcdir)/newtm-memory.cc \
   $(srcdir)/omp-low.cc \
   $(srcdir)/targhooks.cc $(out_file) $(srcdir)/passes.cc \
   $(srcdir)/cgraphclones.cc \

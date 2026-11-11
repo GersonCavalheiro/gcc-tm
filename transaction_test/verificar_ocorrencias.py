@@ -130,7 +130,11 @@ return sum!=16;}'''
                     reasons.append('folded semantic read lost or assigned fictitious result')
                 lower = ''.join(p.read_text() for p in out.glob(label + '*.lower'))
                 if 'newtm-bind' in lower: reasons.append('bindings leaked beyond High GIMPLE')
-                if 'GOMP_transaction_stm' in text or 'newtm_read (' in text:
+                # Dormant prepared clones now contain STM lifecycle calls;
+                # original functions and pragma bodies must still use tracing.
+                ordinary = re.sub(r'(?ms)^[^\n]*\.newtm\.v1 \([^\n]*\)\n\{.*?^\}\n', '', text)
+                if ('GOMP_transaction_stm' in ordinary or 'newtm_read (' in ordinary
+                        or '.newtm.v1 (' in ordinary):
                     reasons.append('functional integration unexpectedly enabled')
             (out / (label + '.log')).write_text(logs + '\n'.join(reasons))
             report.append({'case': label, 'passed': not reasons, 'reasons': reasons, 'command': command})

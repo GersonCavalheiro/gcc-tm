@@ -28,6 +28,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "basic-block.h"
 #include "tree.h"
 #include "gimple.h"
+#include "newtm-lto.h"
+#include "newtm-current.h"
+#include "plugin.h"
 #include "cfghooks.h"
 #include "alloc-pool.h"
 #include "tree-pass.h"
@@ -525,6 +528,11 @@ do_whole_program_analysis (void)
   bitmap_obstack_initialize (NULL);
   symtab->state = IPA_SSA;
 
+  newtm_lto_rebuild_unit ();
+  if (newtm_current_count ())
+    invoke_plugin_callbacks (PLUGIN_ALL_IPA_PASSES_START, NULL);
+  newtm_current_end_frontend ();
+  if (seen_error ()) return;
   execute_ipa_pass_list (g->get_passes ()->all_regular_ipa_passes);
 
   /* When WPA analysis raises errors, do not bother to output anything.  */

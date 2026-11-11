@@ -113,14 +113,19 @@ lista velha de argumentos/índices que apontaria para variáveis da instrução 
 Tabela, sites, testemunhos e pilha de sites são rastreados pelo GC do GCC.
 A pilha auxiliar de fatos escalares não contém ponteiros GC não rastreados.
 
-A janela de consumo é High GIMPLE, antes de construir CFG/SSA. Os vínculos são
-retirados ao iniciar lower_function_body, após omplower e seu dump. Ao encerrar
-a análise inicial da unidade, o reset libera também raízes de instruções antigas
-substituídas durante lowering. Não há promessa de sobrevivência a otimizações,
-streaming LTO ou serialização de módulos. A instrumentação deverá consumir esses
-dados antes de transformações/folds ordinários que eliminem as operações; uma
-etapa futura que prolongue a janela precisará atualizar substituições e verificar
-cobertura, sem interpretar metadados antigos como prova de operação sobrevivente.
+A janela operacional da preparação é o fim da gimplificação, antes também de
+tree-nested. Descritores e associação com auxiliares são retirados na entrada
+de omplower. Vínculos de ocorrência podem permanecer até lower_function_body,
+após omplower e seu dump; sua presença física não autoriza usar operandos de
+antes do remapeamento. Ao encerrar a análise inicial da unidade, o reset libera
+também raízes de instruções antigas substituídas durante lowering.
+
+O [contrato da etapa 6.1](OPENMP_TRANSACTION_VERIFICATION.md) distingue origem,
+instância, derivação e geração de evidência. Cópias não herdam aprovação;
+forget/retire não resolvem obrigações. Não há promessa de sobrevivência
+operacional a otimizações, streaming LTO ou serialização de módulos. Consumir
+na janela válida ou reconstruir/transportar prova específica para a fase nova,
+sem interpretar metadados antigos como prova de operação sobrevivente.
 
 ## Verificação desta etapa
 

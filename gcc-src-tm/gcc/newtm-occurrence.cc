@@ -7,10 +7,12 @@
 #include "backend.h"
 #include "tree.h"
 #include "gimple.h"
+#include "gimple-ssa.h"
 #include "gimple-iterator.h"
 #include "gimple-walk.h"
 #include "newtm-occurrence.h"
 #include "newtm-descriptor.h"
+#include "newtm-obligation.h"
 #include "ggc.h"
 
 /* Operational bindings retain source facts and a key to the actual
@@ -46,6 +48,20 @@ newtm_occurrence_select (tree fn)
   if (!newtm_selected) newtm_selected = hash_map<tree, tree>::create_ggc ();
   newtm_selected->put (fn, fn);
   newtm_descriptor_note_function (fn);
+}
+
+bool
+newtm_occurrence_selected_p (tree fn)
+{
+  return newtm_selected && newtm_selected->get (fn);
+}
+
+void
+newtm_occurrence_selected_functions (auto_vec<tree> &functions)
+{
+  if (!newtm_selected) return;
+  for (auto it = newtm_selected->begin (); it != newtm_selected->end (); ++it)
+    if (DECL_SAVED_TREE ((*it).first)) functions.safe_push ((*it).first);
 }
 
 bool
@@ -210,13 +226,41 @@ void
 newtm_occurrence_copy (const gimple *original, gimple *copy)
 {
   tree v = newtm_occurrence_binding (original);
-  if (!v) return;
+  if (!v) { newtm_obligation_copy (original, copy); return; }
   tree next = copy_node (v);
   TREE_VEC_ELT (next, 8) = TREE_VEC_ELT (v, 0);
   TREE_VEC_ELT (next, 0)
     = build_int_cst (long_long_unsigned_type_node, ++newtm_next_operation);
   newtm_bindings->put (copy, next);
   newtm_descriptor_copy (original, copy);
+  newtm_obligation_copy (original, copy);
+}
+
+void
+newtm_occurrence_derive_store (const gimple *call, gimple *store)
+{
+  tree old = newtm_occurrence_binding (call);
+  if (!old) return;
+  tree binding = copy_node (old);
+  TREE_VEC_ELT (binding, 0)
+    = build_int_cst (long_long_unsigned_type_node, ++newtm_next_operation);
+  TREE_VEC_ELT (binding, 7) = build_int_cst (unsigned_type_node, 2);
+  /* This is a split in the same window, not a gimple_copy. Source/group
+     IDs retain provenance; copied-from remains reserved for real copies. */
+  TREE_VEC_ELT (binding, 8) = build_zero_cst (long_long_unsigned_type_node);
+  newtm_bindings->put (store, binding);
+  newtm_descriptor_transfer_write (call, store);
+  newtm_obligation_derive_store (call, store);
+}
+
+/* A replacement consumes the old operation's identity. Retire it explicitly,
+   including metadata for detached calls that no longer occur in a body walk. */
+void
+newtm_occurrence_forget (const gimple *stmt)
+{
+  newtm_obligation_forget (stmt);
+  if (newtm_bindings) newtm_bindings->remove (const_cast<gimple *> (stmt));
+  newtm_descriptor_forget (stmt);
 }
 
 static tree
@@ -229,6 +273,7 @@ newtm_retire_stmt (gimple_stmt_iterator *gsi, bool *, walk_stmt_info *)
 void
 newtm_occurrence_retire (gimple_seq seq)
 {
+  newtm_obligation_retire (seq);
   if (!newtm_bindings) return;
   walk_stmt_info wi = {};
   walk_gimple_seq (seq, newtm_retire_stmt, NULL, &wi);
@@ -245,6 +290,7 @@ newtm_occurrence_reset ()
   gcc_assert (vec_safe_is_empty (newtm_site_stack));
   newtm_site_stack = NULL;
   newtm_descriptor_reset ();
+  newtm_obligation_reset ();
 }
 
 #include "gt-newtm-occurrence.h"

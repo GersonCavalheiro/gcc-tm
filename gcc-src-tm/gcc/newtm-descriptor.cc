@@ -7,6 +7,7 @@
 #include "backend.h"
 #include "tree.h"
 #include "gimple.h"
+#include "gimple-ssa.h"
 #include "gimple-expr.h"
 #include "gimple-iterator.h"
 #include "gimple-walk.h"
@@ -17,11 +18,26 @@
 #include "tree-iterator.h"
 #include "newtm-occurrence.h"
 #include "newtm-descriptor.h"
+#include "newtm-clone.h"
+#include "newtm-abi.h"
 #include "ggc.h"
 
 static GTY(()) hash_map<tree, tree> *newtm_registration_types;
 static GTY(()) hash_map<tree, tree> *newtm_pointer_effects;
 static GTY(()) hash_map<gimple *, tree> *newtm_descriptors;
+static GTY(()) hash_map<gimple *, gimple *> *controller_prefixes;
+static GTY(()) hash_map<gimple *, tree> *reference_snapshots;
+
+tree newtm_descriptor_reference_snapshot (const gimple *s)
+{ tree *p = reference_snapshots ? reference_snapshots->get (const_cast<gimple *> (s)) : NULL; return p ? *p : NULL_TREE; }
+
+gbind *newtm_descriptor_take_prefix (const gimple *s)
+{
+  gimple *key = const_cast<gimple *> (s);
+  gimple **p = controller_prefixes ? controller_prefixes->get (key) : NULL;
+  if (!p) return NULL;
+  gbind *result = as_a<gbind *> (*p); controller_prefixes->remove (key); return result;
+}
 
 void
 newtm_descriptor_note_registration (tree call, tree type)
@@ -104,13 +120,26 @@ newtm_descriptor_find (const gimple *stmt, newtm_descriptor_role role, unsigned 
 }
 
 namespace {
+static GTY(()) hash_map<gimple *, tree> *identity_calculations;
+}
+bool newtm_descriptor_math_p (const gimple *s)
+{ return identity_calculations && identity_calculations->get (const_cast<gimple *> (s)); }
+namespace {
 struct emitter
 {
   gimple_seq seq = NULL;
   location_t loc;
   gbind *scope;
   emitter (location_t l, gbind *b) : loc (l), scope (b) {}
-  void add (gimple *s) { gimple_set_location (s, loc); gimple_seq_add_stmt_without_update (&seq, s); }
+  void add (gimple *s)
+  {
+    gimple_set_location (s, loc); gimple_seq_add_stmt_without_update (&seq, s);
+    if (is_gimple_assign (s) && INTEGRAL_TYPE_P (TREE_TYPE (gimple_assign_lhs (s))))
+      {
+        if (!identity_calculations) identity_calculations = hash_map<gimple *, tree>::create_ggc ();
+        identity_calculations->put (s, boolean_true_node);
+      }
+  }
   tree temp (tree type, const char *name)
   {
     tree t = create_tmp_var (type, name);
@@ -122,7 +151,7 @@ struct emitter
   tree copy (tree value, const char *name)
   {
     tree t = temp (TREE_TYPE (value), name);
-    add (gimple_build_assign (t, value));
+    add (gimple_build_assign (t, unshare_expr (value)));
     return t;
   }
   tree cast (tree type, tree value)
@@ -185,6 +214,7 @@ struct identity
 {
   tree root = NULL_TREE, object = NULL_TREE, extent = NULL_TREE;
   tree offset = NULL_TREE, valid = NULL_TREE, kind = NULL_TREE, channel = NULL_TREE;
+  tree storage = NULL_TREE;
   newtm_descriptor_state state = NEWTM_DESC_UNKNOWN;
   bool stable = false;
 };
@@ -193,6 +223,7 @@ struct analysis
 {
   tree fn;
   gbind *scope = NULL;
+  gbind *activation = NULL;
   bool candidate, control = false, context_control = false;
   unsigned depth = 0;
   hash_map<tree, identity> pointers;
@@ -209,6 +240,38 @@ static tree zero () { return build_zero_cst (size_type_node); }
 static bool concrete (const identity &id)
 { return id.object && id.extent && id.kind; }
 
+/* Clone transports are borrowed per-activation data. Do not resolve their
+   channels from source recipes or from another caller's analysis state. */
+static identity
+transport_identity (tree transport, tree root, tree channel,
+                    newtm_descriptor_state state)
+{
+  identity id;
+  tree binding = newtm_clone_identity (transport);
+  id.root = root; id.channel = channel; id.state = state;
+  id.object = newtm_clone_field (binding, 0);
+  id.extent = newtm_clone_field (binding, 1);
+  id.offset = newtm_clone_field (binding, 2);
+  id.kind = newtm_clone_field (binding, 3);
+  id.storage = newtm_clone_storage (transport);
+  id.valid = boolean_true_node; id.stable = true;
+  return id;
+}
+static identity
+load_transport (identity id, emitter &e)
+{
+  if (!concrete (id)) return id;
+  tree *fields[] = { &id.object, &id.extent, &id.offset, &id.kind, &id.storage };
+  for (tree *field : fields)
+    if (*field && !is_gimple_val (*field)) *field = e.copy (*field, "newtm_binding_field");
+  if (id.storage)
+    id.valid = e.both (id.valid, e.compare (LE_EXPR, id.storage,
+                           build_int_cst (uint32_type_node, NEWTM_STORAGE_PRIVATE)));
+  id.valid = e.both (id.valid, e.compare (LE_EXPR, id.kind,
+                           build_int_cst (uint32_type_node, NEWTM_ABI_AGGREGATE)));
+  return id;
+}
+
 static identity
 object (tree decl, analysis &s)
 {
@@ -217,6 +280,13 @@ object (tree decl, analysis &s)
   if (!type || !TYPE_SIZE_UNIT (type)
       || TREE_CODE (TYPE_SIZE_UNIT (type)) != INTEGER_CST) return id;
   id.root = decl;
+  /* The callee owns a pointer/reference parameter's representation slot;
+     its borrowed pointee has a different identity rooted at the parameter.
+     A unique declaration token prevents a referent registration from being
+     selected for a load of that private representation (notably references
+     made addressable by an external-region capture). */
+  if (s.candidate && TREE_CODE (decl) == PARM_DECL && POINTER_TYPE_P (type))
+    id.root = build_int_cst (unsigned_type_node, DECL_UID (decl));
   /* Provenance from existing memory operands/registered objects. Do not mark
      additional program variables addressable after gimplification. */
   id.object = fold_convert (ptr_type_node, build1 (ADDR_EXPR, build_pointer_type (type), decl));
@@ -225,6 +295,8 @@ object (tree decl, analysis &s)
                            TREE_CODE (type) == ARRAY_TYPE || TREE_CODE (type) == RECORD_TYPE);
   id.valid = boolean_true_node;
   id.state = s.private_objects.contains (decl) ? NEWTM_DESC_PRIVATE : NEWTM_DESC_UNREGISTERED;
+  id.storage = build_int_cst (uint32_type_node, id.state == NEWTM_DESC_PRIVATE
+                             ? NEWTM_STORAGE_PRIVATE : NEWTM_STORAGE_REGISTERED);
   return id;
 }
 
@@ -234,7 +306,15 @@ memory (tree ref, analysis &s, emitter &e, bool one_past, unsigned depth)
   if (!ref || depth > 64) return identity ();
   switch (TREE_CODE (ref))
     {
-    case VAR_DECL: case PARM_DECL: return object (ref, s);
+    case VAR_DECL: case PARM_DECL:
+      if (tree transport = newtm_clone_capture_object_binding (s.fn, ref))
+        {
+          unsigned channel = tree_to_uhwi (TREE_OPERAND (transport, 1))
+            / tree_to_uhwi (TYPE_SIZE_UNIT (TREE_TYPE (transport)));
+          return load_transport (transport_identity (transport, ref,
+                      build_int_cst (unsigned_type_node, channel), NEWTM_DESC_INCOMING), e);
+        }
+      return object (ref, s);
     case COMPONENT_REF:
       {
         identity id = memory (TREE_OPERAND (ref, 0), s, e, false, depth + 1);
@@ -321,8 +401,8 @@ pointer (tree value, analysis &s, emitter &e, unsigned depth)
   STRIP_NOPS (value);
   if (TREE_CODE (value) == ADDR_EXPR)
     return memory (TREE_OPERAND (value, 0), s, e, true, depth + 1);
-  identity *known = s.pointers.get (value);
-  if (known) return *known;
+  identity *known = s.pointers.get (newtm_clone_pointer_key (s.fn, value));
+  if (known) return load_transport (*known, e);
   if (VAR_P (value) && TYPE_READONLY (TREE_TYPE (value)) && DECL_INITIAL (value))
     return pointer (DECL_INITIAL (value), s, e, depth + 1);
   return identity ();
@@ -354,6 +434,9 @@ select_registration (identity id, tree size, analysis &s, emitter &e)
       id.offset = e.checked (MINUS_EXPR, id.offset, choice->value.offset, id.valid);
       id.object = choice->value.object; id.extent = choice->value.extent;
       id.kind = choice->value.kind; id.state = NEWTM_DESC_REGISTERED;
+      /* Listing an object does not change when its lifetime began. In
+         particular, an attempt-private local must not become preexisting. */
+      id.storage = choice->value.storage;
     }
   return id;
 }
@@ -374,6 +457,8 @@ range_valid (identity &id, tree size, emitter &e)
   tree nonzero_extent = e.binary (MAX_EXPR, size_type_node, extent, sz (size_one_node));
   tree span = e.binary (MINUS_EXPR, size_type_node, nonzero_extent, sz (size_one_node));
   valid = e.both (valid, e.compare (LE_EXPR, e.cast (wide, span), address_left));
+  /* A one-past address must also fit the target pointer representation. */
+  valid = e.both (valid, e.compare (LE_EXPR, e.cast (wide, offset), address_left));
   valid = e.both (valid, e.compare (LE_EXPR, offset, extent));
   /* Clamp before subtraction: no underflow even on an invalid offset. */
   tree bounded = e.binary (MIN_EXPR, size_type_node, offset, extent);
@@ -412,6 +497,9 @@ record (gimple *stmt, newtm_descriptor_role role, unsigned index,
       TREE_VEC_ELT (d, NEWTM_D_OFFSET) = e.copy (sz (id.offset), "newtm_position");
       TREE_VEC_ELT (d, NEWTM_D_KIND) = e.copy (id.kind, "newtm_kind");
       TREE_VEC_ELT (d, NEWTM_D_VALID) = e.copy (valid, "newtm_valid");
+      TREE_VEC_ELT (d, NEWTM_D_STORAGE) = id.storage ? id.storage
+        : build_int_cst (uint32_type_node, id.state == NEWTM_DESC_PRIVATE
+                        ? NEWTM_STORAGE_PRIVATE : NEWTM_STORAGE_REGISTERED);
     }
   else TREE_VEC_ELT (d, NEWTM_D_OFFSET) = id.offset;
   tree key = make_tree_vec (2);
@@ -487,13 +575,18 @@ walk_one (gimple *stmt, analysis &s, emitter &e)
                     id.offset = e.checked_into (PLUS_EXPR, size_type_node, id.offset, change, id.valid);
                   else id = identity ();
                 }
-              if (binding) record (stmt, NEWTM_DESC_ADDRESS, 0, id, zero (), lhs, s, e);
+              record (stmt, NEWTM_DESC_ADDRESS, 0, id, zero (), lhs, s, e);
             }
           else if (gimple_assign_single_p (stmt) || gimple_assign_cast_p (stmt))
-            id = pointer (gimple_assign_rhs1 (stmt), s, e);
+            {
+              id = pointer (gimple_assign_rhs1 (stmt), s, e);
+              if (gimple_assign_single_p (stmt) && TREE_CODE (gimple_assign_rhs1 (stmt)) == ADDR_EXPR
+                  && REFERENCE_CLASS_P (TREE_OPERAND (gimple_assign_rhs1 (stmt), 0)))
+                record (stmt, NEWTM_DESC_ADDRESS, 0, id, zero (), lhs, s, e);
+            }
           unsigned *count = s.writes.get (lhs);
           id.stable = !s.control && (!count || *count == 1);
-          s.pointers.put (lhs, id);
+          s.pointers.put (newtm_clone_pointer_key (s.fn, lhs), id);
         }
       s.definitions.put (lhs, stmt);
       if (mode & 1)
@@ -541,6 +634,26 @@ walk_one (gimple *stmt, analysis &s, emitter &e)
               record (stmt, NEWTM_DESC_ARGUMENT, i, pointer (gimple_call_arg (stmt, i), s, e),
                       zero (), gimple_call_arg (stmt, i), s, e);
         }
+      if ((mode & 8) && fn)
+        {
+          unsigned index = gimple_call_num_args (stmt);
+          for (tree capture = newtm_clone_captures (fn); capture; capture = TREE_CHAIN (capture))
+            {
+              tree value = newtm_clone_capture_value (s.fn, TREE_VALUE (capture));
+              record (stmt, NEWTM_DESC_ARGUMENT, index++, memory (value, s, e),
+                      zero (), build_fold_addr_expr (value), s, e);
+              if (!integer_zerop (TREE_PURPOSE (capture)))
+                record (stmt, NEWTM_DESC_ARGUMENT, index++, pointer (value, s, e),
+                        zero (), value, s, e);
+            }
+        }
+      /* A call can store its result directly into a preexisting memory
+         object. Preserve that store independently of the callee/arguments;
+         clone lowering will split it into result-out plus a checked store. */
+      tree destination = gimple_call_lhs (stmt);
+      if ((mode & 8) && destination && !is_gimple_reg (destination))
+        record (stmt, NEWTM_DESC_WRITE, 0, memory (destination, s, e),
+                TYPE_SIZE_UNIT (TREE_TYPE (destination)), destination, s, e);
       if (!builtin)
         {
           tree *effect = fn && newtm_pointer_effects ? newtm_pointer_effects->get (fn) : NULL;
@@ -551,7 +664,9 @@ walk_one (gimple *stmt, analysis &s, emitter &e)
         {
           identity id; id.root = lhs; id.offset = zero (); id.valid = boolean_true_node;
           id.state = NEWTM_DESC_RESULT; id.channel = lhs;
-          id.stable = !s.control; s.pointers.put (lhs, id);
+          if (tree transport = newtm_clone_result_binding (stmt))
+            id = transport_identity (transport, lhs, lhs, NEWTM_DESC_RESULT);
+          id.stable = !s.control; s.pointers.put (newtm_clone_pointer_key (s.fn, lhs), id);
         }
     }
   else if (gimple_code (stmt) == GIMPLE_RETURN && binding)
@@ -592,6 +707,61 @@ walk_sequence (gimple_seq *seq, analysis &s)
       else if (gimple_code (stmt) == GIMPLE_OMP_TRANSACTION)
         {
           bool outer = !s.depth && !s.candidate;
+          if (outer && flag_openmp_transaction_stm)
+            if (tree helper = newtm_clone_region_body (stmt))
+              {
+                gbind *prefix = gimple_build_bind (NULL_TREE, NULL, NULL_TREE);
+                emitter e (gimple_location (stmt), prefix);
+                unsigned index = 0;
+                for (tree p = newtm_clone_captures (helper); p; p = TREE_CHAIN (p))
+                  {
+                    tree value = TREE_VALUE (p);
+                    tree capture = value;
+                    identity representation = memory (value, s, e);
+                    identity pointee;
+                    if (TREE_CODE (TREE_TYPE (value)) == REFERENCE_TYPE)
+                      {
+                        /* A reference's immutable representation is compiler
+                           transport, not another registered program object.
+                           Snapshot its logical pointer without reading the
+                           referent, and pass the address of that private copy. */
+                        tree type = TREE_TYPE (TREE_TYPE (value));
+                        tree pointer_type = build_pointer_type (type);
+                        tree snapshot = e.copy (value, "newtm_reference_value");
+                        if (!reference_snapshots) reference_snapshots = hash_map<gimple *, tree>::create_ggc ();
+                        reference_snapshots->put (gimple_seq_last_stmt (e.seq), value);
+                        tree evaluated = e.cast (pointer_type, snapshot);
+                        capture = e.temp (pointer_type, "newtm_reference_capture");
+                        TREE_ADDRESSABLE (capture) = 1;
+                        e.add (gimple_build_assign (capture, evaluated));
+                        representation = object (capture, s);
+                        representation.state = NEWTM_DESC_PRIVATE;
+                        representation.storage = build_int_cst (uint32_type_node, NEWTM_STORAGE_PRIVATE);
+                        pointee = pointer (value, s, e);
+                        if (!concrete (pointee))
+                          {
+                            pointee.root = value;
+                            pointee.object = e.cast (ptr_type_node, evaluated);
+                            pointee.extent = sz (TYPE_SIZE_UNIT (type));
+                            pointee.offset = zero ();
+                            pointee.kind = build_int_cst (uint32_type_node,
+                              TREE_CODE (type) == ARRAY_TYPE || TREE_CODE (type) == RECORD_TYPE);
+                            pointee.valid = boolean_true_node;
+                            pointee.state = NEWTM_DESC_UNREGISTERED;
+                            pointee.storage = build_int_cst (uint32_type_node, NEWTM_STORAGE_REGISTERED);
+                          }
+                      }
+                    record (stmt, NEWTM_DESC_ARGUMENT, index++, representation,
+                            zero (), build_fold_addr_expr (capture), s, e);
+                    if (!integer_zerop (TREE_PURPOSE (p)))
+                      record (stmt, NEWTM_DESC_ARGUMENT, index++,
+                              TREE_CODE (TREE_TYPE (value)) == REFERENCE_TYPE ? pointee : pointer (value, s, e),
+                              zero (), value, s, e);
+                  }
+                gimple_bind_set_body (prefix, e.seq);
+                if (!controller_prefixes) controller_prefixes = hash_map<gimple *, gimple *>::create_ggc ();
+                controller_prefixes->put (stmt, prefix);
+              }
           bool control = s.context_control;
           unsigned registrations = s.registered.length ();
           if (outer) s.context_control = false;
@@ -603,6 +773,14 @@ walk_sequence (gimple_seq *seq, analysis &s)
           gimple_omp_set_body (stmt, wrapped);
           ++s.depth; walk_sequence (gimple_omp_body_ptr (stmt), s); --s.depth;
           if (outer) { s.registered.truncate (registrations); s.context_control = control; }
+          if (outer && flag_openmp_transaction_stm)
+            {
+              /* The original speculative body is about to be removed. Its
+                 definitions/result channels cannot describe a later attempt.
+                 Require a fresh proof instead of referring to dead IR. */
+              s.pointers.empty ();
+              s.definitions.empty ();
+            }
         }
       else if (gimple_code (stmt) == GIMPLE_TRY)
         {
@@ -613,7 +791,10 @@ walk_sequence (gimple_seq *seq, analysis &s)
         walk_sequence (gimple_omp_body_ptr (stmt), s);
       else
         {
-          emitter e (gimple_location (stmt), s.scope);
+          /* Scalar descriptor snapshots can remain in pointer identities
+             after an inner source block ends. Their declarations belong to
+             the prepared activation; evaluations stay at the original site. */
+          emitter e (gimple_location (stmt), s.activation ? s.activation : s.scope);
           walk_one (stmt, s, e);
           if (e.seq) gsi_insert_seq_before_without_update (&p, e.seq, GSI_SAME_STMT);
         }
@@ -636,20 +817,47 @@ newtm_descriptor_function (tree fn)
   walk_gimple_seq (gimple_body (fn), has_binding, NULL, &query);
   if (!found) return;
   analysis s (fn);
-  /* A selected candidate's by-value parameters/locals are private to its future
-     prepared invocation; pointer/reference VALUES use explicit incoming slots. */
-  s.candidate = newtm_pointer_effects && newtm_pointer_effects->get (fn);
+  /* Only a real prepared invocation owns the whole function's parameters and
+     locals as attempt-private. An original selected function can still be
+     called normally and start its own pragma later: only objects created
+     inside that region are private there. Its source channels stay pending. */
+  s.candidate = newtm_clone_original (fn) != NULL_TREE;
+  if (s.candidate) s.activation = as_a<gbind *> (gimple_seq_first_stmt (gimple_body (fn)));
   unsigned slot = 0;
   for (tree p = DECL_ARGUMENTS (fn); p; p = DECL_CHAIN (p))
     {
-      if (s.candidate && TREE_CODE (TREE_TYPE (p)) != REFERENCE_TYPE) s.private_objects.add (p);
+      if (s.candidate) s.private_objects.add (p);
       if (POINTER_TYPE_P (TREE_TYPE (p)))
         {
           identity id; id.root = p; id.offset = zero (); id.valid = boolean_true_node;
-          id.state = NEWTM_DESC_INCOMING; id.channel = build_int_cst (unsigned_type_node, slot++);
+          id.state = NEWTM_DESC_INCOMING;
+          if (tree transport = newtm_clone_parameter_binding (fn, p))
+            {
+              unsigned channel = tree_to_uhwi (TREE_OPERAND (transport, 1))
+                / tree_to_uhwi (TYPE_SIZE_UNIT (TREE_TYPE (transport)));
+              id.channel = build_int_cst (unsigned_type_node, channel);
+              id = transport_identity (transport, p, id.channel, NEWTM_DESC_INCOMING);
+            }
+          else if (newtm_clone_original (fn)) continue; /* ABI-only parameter. */
+          else id.channel = build_int_cst (unsigned_type_node, slot++);
           id.stable = true; s.pointers.put (p, id);
         }
     }
+  /* Seed capture value channels once, just like formal parameters. Once a
+     call/store invalidates a mutable pointer, do not resurrect its entry
+     binding: only a proven new definition can establish provenance again. */
+  for (tree capture = newtm_clone_captures (fn); capture; capture = TREE_CHAIN (capture))
+    if (newtm_clone_original (fn) && !integer_zerop (TREE_PURPOSE (capture)))
+      {
+        tree value = newtm_clone_capture_value (fn, TREE_VALUE (capture));
+        tree transport = newtm_clone_parameter_binding (fn, value);
+        gcc_assert (transport);
+        unsigned channel = tree_to_uhwi (TREE_OPERAND (transport, 1))
+          / tree_to_uhwi (TYPE_SIZE_UNIT (TREE_TYPE (transport)));
+        identity id = transport_identity (transport, newtm_clone_pointer_root (fn, value),
+                         build_int_cst (unsigned_type_node, channel), NEWTM_DESC_INCOMING);
+        s.pointers.put (newtm_clone_pointer_key (s.fn, value), id);
+      }
   walk_stmt_info wi = {}; wi.info = &s;
   walk_gimple_seq (gimple_body (fn), count_writes, NULL, &wi);
   gimple_seq body = gimple_body (fn);
@@ -673,15 +881,46 @@ newtm_descriptor_copy (const gimple *original, gimple *copy)
     }
   newtm_descriptors->put (copy, result);
 }
+/* Transfer within the SAME activation/window to the SAME evaluated lvalue.
+   This is a split of a call result store, not a copy/remapping of its body.
+   Ordinary gimple_copy still invalidates all operational fields as STALE. */
+void
+newtm_descriptor_transfer_write (const gimple *call, gimple *store)
+{
+  gcc_assert (is_gimple_assign (store)
+              && (is_gimple_call (call) ? gimple_call_lhs (call)
+                                       : gimple_assign_lhs (call))
+                 == gimple_assign_lhs (store));
+  tree d = newtm_descriptor_find (call, NEWTM_DESC_WRITE);
+  if (!d) return;
+  tree key = make_tree_vec (2);
+  TREE_VEC_ELT (key, 0) = build_int_cst (unsigned_type_node, NEWTM_DESC_WRITE);
+  TREE_VEC_ELT (key, 1) = build_zero_cst (unsigned_type_node);
+  newtm_descriptors->put (store, tree_cons (key, d, NULL_TREE));
+}
+
+void
+newtm_descriptor_forget (const gimple *stmt)
+{
+  if (identity_calculations) identity_calculations->remove (const_cast<gimple *> (stmt));
+  if (newtm_descriptors) newtm_descriptors->remove (const_cast<gimple *> (stmt));
+  if (controller_prefixes) controller_prefixes->remove (const_cast<gimple *> (stmt));
+  if (reference_snapshots) reference_snapshots->remove (const_cast<gimple *> (stmt));
+  newtm_clone_forget_region (stmt);
+}
+
 static tree
 retire_descriptor (gimple_stmt_iterator *p, bool *, walk_stmt_info *)
 {
+  if (identity_calculations) identity_calculations->remove (gsi_stmt (*p));
   if (newtm_descriptors) newtm_descriptors->remove (gsi_stmt (*p));
+  if (controller_prefixes) controller_prefixes->remove (gsi_stmt (*p));
+  if (reference_snapshots) reference_snapshots->remove (gsi_stmt (*p));
+  newtm_clone_forget_region (gsi_stmt (*p));
   return NULL_TREE;
 }
 void newtm_descriptor_retire (gimple_seq body)
 {
-  if (!newtm_descriptors) return;
   walk_stmt_info wi = {};
   walk_gimple_seq (body, retire_descriptor, NULL, &wi);
 }
@@ -691,5 +930,8 @@ newtm_descriptor_reset ()
   newtm_descriptors = NULL;
   newtm_registration_types = NULL;
   newtm_pointer_effects = NULL;
+  identity_calculations = NULL;
+  controller_prefixes = NULL;
+  reference_snapshots = NULL;
 }
 #include "gt-newtm-descriptor.h"

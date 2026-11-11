@@ -1,3 +1,4 @@
+
 # ============================================================
 # GCC Transaction Development Environment
 #
@@ -20,8 +21,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # ============================================================
 # 2. Dependências fundamentais do GCC
-#
-# Camada estável: alterações pouco frequentes.
 # ============================================================
 
 RUN apt-get update \
@@ -42,8 +41,6 @@ RUN apt-get update \
 
 # ============================================================
 # 3. Ferramentas de desenvolvimento
-#
-# Camada independente das dependências fundamentais.
 # ============================================================
 
 RUN apt-get update \
@@ -61,8 +58,6 @@ RUN apt-get update \
 
 # ============================================================
 # 4. Instalação do Node.js 22
-#
-# Dependência do Codex e OpenCode.
 # ============================================================
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x \
@@ -75,11 +70,28 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
-# 5. Configuração do usuário
+# 5. Instalação dos agentes
+#
+# Instalação global realizada como root.
+# Os executáveis ficam disponíveis para todos os usuários.
+# ============================================================
+
+# Codex
+RUN npm install -g @openai/codex \
+    && npm cache clean --force
+
+# OpenCode
+RUN npm install -g opencode-ai \
+    && npm cache clean --force
+
+# Claude Code
+RUN npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force
+
+# ============================================================
+# 6. Configuração do usuário não privilegiado
 #
 # Ubuntu 24.04 possui o usuário ubuntu (UID 1000).
-#
-# Utilizamos esse usuário para evitar conflitos de UID/GID.
 # ============================================================
 
 RUN mkdir -p /usr/src/gcc-tm \
@@ -88,42 +100,19 @@ RUN mkdir -p /usr/src/gcc-tm \
 ENV HOME=/home/ubuntu \
     PATH="/home/ubuntu/.local/bin:${PATH}"
 
-# ============================================================
-# 6. Instalação do Codex
-#
-# Camada independente.
-# ============================================================
-
-RUN npm install -g @openai/codex \
-    && npm cache clean --force
-
-# ============================================================
-# 7. Instalação do OpenCode
-#
-# Camada independente.
-# ============================================================
-
-RUN npm install -g opencode-ai \
-    && npm cache clean --force
-
-# ============================================================
-# 8. Instalação do Claude Code
-#
-# Instalação como usuário não privilegiado.
-# ============================================================
-
 USER ubuntu
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
 # ============================================================
-# 9. Diretório de trabalho
+# 7. Diretório de trabalho
 #
 # O projeto é montado a partir da máquina hospedeira.
 # ============================================================
 
 WORKDIR /usr/src/gcc-tm
 
+# ============================================================
+# 8. Comando padrão
+# ============================================================
+
 CMD ["/bin/bash"]
+

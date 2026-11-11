@@ -4,6 +4,7 @@ No executable STM access is expected: positive execution checks ordinary
 semantics/index evaluation, while dumps check the non-executable canonical plan.
 """
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -128,7 +129,9 @@ for name, expected in (("ref-subobject", ("base-offset=4", "extent=4", "kind=0")
     dumps = list(output.glob(f"{name}-{language}-O0.*.gimple"))
     content = "".join(path.read_text() for path in dumps)
     passed = bool(dumps) and all(token in content for token in expected)
-    passed &= "GOMP_transaction_stm" not in content and "newtm_read (" not in content
+    ordinary = re.sub(r'(?ms)^[^\n]*\.newtm\.v1 \([^\n]*\)\n\{.*?^\}\n', '', content)
+    passed &= ("GOMP_transaction_stm" not in ordinary and "newtm_read (" not in ordinary
+               and ".newtm.v1 (" not in ordinary)
     report.append({"case": "plan-" + name, "passed": passed})
     if not passed: print(f"FAIL: plan-{name}: expected {expected}")
 

@@ -47,6 +47,8 @@
 #include "symbol-summary.h"
 #include "symtab-thunks.h"
 #include "attribs.h"
+#include "newtm-obligation.h"
+#include "newtm-clone.h"
 
 /* Summary of nested functions.  */
 static function_summary <nested_function_info *>
@@ -444,6 +446,7 @@ lookup_field_for_decl (struct nesting_info *info, tree decl,
 
       insert_field_into_struct (type, field);
       *slot = field;
+      newtm_clone_record_field (field, decl, use_pointer_in_frame (decl));
 
       if (TREE_CODE (decl) == PARM_DECL)
 	info->any_parm_remapped = true;
@@ -3485,6 +3488,7 @@ finalize_nesting_tree_1 (struct nesting_info *root)
       layout_type (root->frame_type);
       warn_padded = save_warn_padded;
       layout_decl (root->frame_decl, 0);
+      newtm_clone_record_frame (root->frame_decl, context, fb_decl, root->chain_field);
 
       /* Initialize the frame base address field.  If the builtin we need is
 	 not available, set it to NULL so that debugging information does not
@@ -3858,6 +3862,10 @@ lower_nested_functions (tree fndecl)
 
   bitmap_obstack_initialize (&nesting_info_bitmap_obstack);
   root = create_nesting_tree (cgn);
+
+  struct nesting_info *info;
+  FOR_EACH_NEST_INFO (info, root)
+    newtm_obligation_remap_boundary (info->context, NEWTM_REMAP_NESTED);
 
   walk_all_functions (convert_nonlocal_reference_stmt,
                       convert_nonlocal_reference_op,

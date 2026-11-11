@@ -50,6 +50,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "splay-tree.h"
 #include "omp-general.h"
 #include "newtm-descriptor.h"
+#include "newtm-obligation.h"
+#include "newtm-clone.h"
 #include "omp-low.h"
 #include "gimple-low.h"
 #include "alloc-pool.h"
@@ -840,6 +842,7 @@ install_var_field (tree var, bool by_ref, int mask, omp_context *ctx)
      side effect of making dwarf2out ignore this member, so for helpful
      debugging we clear it later in delete_omp_context.  */
   DECL_ABSTRACT_ORIGIN (field) = var;
+  newtm_clone_record_field (field, var, by_ref);
   if ((mask & 16) == 0 && type == TREE_TYPE (var))
     {
       SET_DECL_ALIGN (field, DECL_ALIGN (var));
@@ -857,6 +860,7 @@ install_var_field (tree var, bool by_ref, int mask, omp_context *ctx)
 	  sfield = build_decl (DECL_SOURCE_LOCATION (var),
 			       FIELD_DECL, DECL_NAME (var), type);
 	  DECL_ABSTRACT_ORIGIN (sfield) = var;
+          newtm_clone_record_field (sfield, var, by_ref);
 	  SET_DECL_ALIGN (sfield, DECL_ALIGN (field));
 	  DECL_USER_ALIGN (sfield) = DECL_USER_ALIGN (field);
 	  TREE_THIS_VOLATILE (sfield) = TREE_THIS_VOLATILE (field);
@@ -876,6 +880,7 @@ install_var_field (tree var, bool by_ref, int mask, omp_context *ctx)
 	      sfield = build_decl (DECL_SOURCE_LOCATION (t),
 				   FIELD_DECL, DECL_NAME (t), TREE_TYPE (t));
 	      DECL_ABSTRACT_ORIGIN (sfield) = DECL_ABSTRACT_ORIGIN (t);
+              newtm_clone_record_field (sfield, DECL_ABSTRACT_ORIGIN (t), DECL_ABSTRACT_ORIGIN (t) && TREE_TYPE (sfield) != TREE_TYPE (DECL_ABSTRACT_ORIGIN (t)));
 	      insert_field_into_struct (ctx->srecord_type, sfield);
 	      splay_tree_insert (ctx->sfield_map,
 				 (splay_tree_key) DECL_ABSTRACT_ORIGIN (t),
@@ -15350,6 +15355,7 @@ execute_lower_omp (void)
   body = gimple_body (current_function_decl);
   /* Materialized identities must be consumed before outlining/remapping.
      Copies deliberately require rebuilding, never reuse old temporaries. */
+  newtm_obligation_remap_boundary (current_function_decl, NEWTM_REMAP_OMP);
   newtm_descriptor_retire (body);
 
   scan_omp (&body, NULL);

@@ -122,7 +122,8 @@ along with GCC; see the file COPYING3.  If not see
      form followed by the data for the string.  */
 
 #define LTO_major_version GCC_major_version
-#define LTO_minor_version 0
+/* Function streams include versioned transaction reconstruction contracts. */
+#define LTO_minor_version 1
 
 typedef unsigned char	lto_decl_flags_t;
 

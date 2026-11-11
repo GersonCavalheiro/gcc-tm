@@ -49,6 +49,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimplify.h"
 #include "newtm-occurrence.h"
 #include "newtm-descriptor.h"
+#include "newtm-clone.h"
 #include "stor-layout.h"
 #include "print-tree.h"
 #include "tree-iterator.h"
@@ -21131,6 +21132,7 @@ gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	      case OMP_TRANSACTION:
 		g = newtm_build_transaction (body, OMP_TRANSACTION_OBJECTS (*expr_p),
                                            OMP_TRANSACTION_PLAN (*expr_p));
+                newtm_clone_bind_region (g, *expr_p);
 		break;
 	      case OMP_STRUCTURED_BLOCK:
 		g = gimple_build_omp_structured_block (body);
@@ -22182,7 +22184,10 @@ gimplify_function_tree (tree fndecl)
       gimple_set_body (fndecl, seq);
     }
 
+  newtm_clone_scan_results (fndecl);
   newtm_descriptor_function (fndecl);
+  newtm_clone_finish (fndecl);
+  newtm_clone_control (fndecl);
   DECL_SAVED_TREE (fndecl) = NULL_TREE;
   cfun->curr_properties |= PROP_gimple_any;
 

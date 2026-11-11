@@ -1,0 +1,532 @@
+{
+  "step": 2,
+  "implementation_complete": true,
+  "stage_6_6_complete": false,
+  "original_sites": 36,
+  "current_emitters": 38,
+  "migration": [
+    {
+      "id": "D01",
+      "original_line": 527,
+      "function": "check_prepared_signature",
+      "current_emitters": [
+        {
+          "line": 527,
+          "message": "transaction prepared signature lost its parameter correspondence",
+          "rule": "V06",
+          "operation": "prepared signature"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D02",
+      "original_line": 574,
+      "function": "check_remapped_operands",
+      "current_emitters": [
+        {
+          "line": 575,
+          "message": "transaction transformed operand lost its frame correspondence",
+          "rule": "V03",
+          "operation": "frame operand"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D03",
+      "original_line": 610,
+      "function": "check_lowered_controller",
+      "current_emitters": [
+        {
+          "line": 612,
+          "message": "transaction current controller cannot be snapshotted",
+          "rule": "V08",
+          "operation": "controller snapshot"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D04",
+      "original_line": 613,
+      "function": "check_lowered_controller",
+      "current_emitters": [
+        {
+          "line": 616,
+          "message": "transaction controller lost its lowered body correspondence: owner mismatch",
+          "rule": "V07",
+          "operation": "controller ownership"
+        },
+        {
+          "line": 619,
+          "message": "transaction controller lost its lowered body correspondence: incompatible prepared signature",
+          "rule": "V06",
+          "operation": "prepared signature"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D05",
+      "original_line": 615,
+      "function": "check_lowered_controller",
+      "current_emitters": [
+        {
+          "line": 622,
+          "message": "transaction capture changed its remapping origin",
+          "rule": "V06",
+          "operation": "capture origin"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D06",
+      "original_line": 625,
+      "function": "check_lowered_controller",
+      "current_emitters": [
+        {
+          "line": 633,
+          "message": "transaction controller changed during current verification",
+          "rule": "V08",
+          "operation": "controller proof freshness"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D07",
+      "original_line": 631,
+      "function": "check_lowered_controller",
+      "current_emitters": [
+        {
+          "line": 640,
+          "message": "transaction controller lacks a unique lowered body invocation",
+          "rule": "V07",
+          "operation": "unique body invocation"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D08",
+      "original_line": 807,
+      "function": "check_lowered_context",
+      "current_emitters": [
+        {
+          "line": 817,
+          "message": "transaction transformed call lost its borrowed context",
+          "rule": "V06",
+          "operation": "borrowed context call"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D09",
+      "original_line": 823,
+      "function": "check_lowered_calls",
+      "current_emitters": [
+        {
+          "line": 833,
+          "message": "transaction graph lacks a lowered body for %qD",
+          "rule": "V06",
+          "operation": "prepared call"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D10",
+      "original_line": 837,
+      "function": "check_lowered_calls",
+      "current_emitters": [
+        {
+          "line": 848,
+          "message": "transaction transformed body has an unverified call target",
+          "rule": "V06",
+          "operation": "prepared call"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D11",
+      "original_line": 840,
+      "function": "check_lowered_calls",
+      "current_emitters": [
+        {
+          "line": 852,
+          "message": "transaction transformed prepared call has incompatible channels",
+          "rule": "V06",
+          "operation": "prepared call"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D12",
+      "original_line": 863,
+      "function": "check_lowered_registrations",
+      "current_emitters": [
+        {
+          "line": 876,
+          "message": "transaction memory CFG cannot be inspected: %s",
+          "rule": "V02",
+          "operation": "REGISTER CFG inspection"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D13",
+      "original_line": 873,
+      "function": "check_lowered_registrations",
+      "current_emitters": [
+        {
+          "line": 887,
+          "message": "transaction transformed registration has incompatible operands",
+          "rule": "V06",
+          "operation": "REGISTER service signature"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D14",
+      "original_line": 890,
+      "function": "check_lowered_registrations",
+      "current_emitters": [
+        {
+          "line": 905,
+          "message": "transaction transformed registration lacks an identity guard: %s",
+          "rule": "V03",
+          "operation": "REGISTER"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D15",
+      "original_line": 892,
+      "function": "check_lowered_registrations",
+      "current_emitters": [
+        {
+          "line": 908,
+          "message": "transaction transformed registration changed its object identity",
+          "rule": "V03",
+          "operation": "REGISTER"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D16",
+      "original_line": 903,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 920,
+          "message": "transaction transformed offset lacks arithmetic provenance",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D17",
+      "original_line": 915,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 933,
+          "message": "transaction transformed offset exceeds arithmetic proof depth",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D18",
+      "original_line": 922,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 941,
+          "message": "transaction transformed offset lost its checked arithmetic",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D19",
+      "original_line": 929,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 949,
+          "message": "transaction transformed offset lost its checked arithmetic",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D20",
+      "original_line": 944,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 965,
+          "message": "transaction transformed offset lost its checked arithmetic",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D21",
+      "original_line": 949,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 971,
+          "message": "transaction transformed offset lacks an overflow guard: %s",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D22",
+      "original_line": 966,
+      "function": "check_offset_arithmetic",
+      "current_emitters": [
+        {
+          "line": 989,
+          "message": "transaction transformed offset lost its checked arithmetic",
+          "rule": "V03",
+          "operation": "offset arithmetic"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D23",
+      "original_line": 976,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1000,
+          "message": "transaction transformed access lacks its preparation summary",
+          "rule": "V08",
+          "operation": "preparation summary"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D24",
+      "original_line": 980,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1005,
+          "message": "transaction access CFG cannot be inspected: %s",
+          "rule": "V02",
+          "operation": "READ/WRITE CFG inspection"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D25",
+      "original_line": 992,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1018,
+          "message": "transaction transformed access has incompatible operands",
+          "rule": "V06",
+          "operation": "READ/WRITE service signature"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D26",
+      "original_line": 998,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1025,
+          "message": "transaction transformed access lost its operation identity",
+          "rule": "V01",
+          "operation": "required memory operation"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D27",
+      "original_line": 1008,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1036,
+          "message": "transaction transformed access changed its static identity",
+          "rule": "V03",
+          "operation": "READ/WRITE"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D28",
+      "original_line": 1027,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1056,
+          "message": "transaction transformed access lacks a range guard: %s",
+          "rule": "V03",
+          "operation": "READ/WRITE"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D29",
+      "original_line": 1034,
+      "function": "check_lowered_memory",
+      "current_emitters": [
+        {
+          "line": 1064,
+          "message": "transaction transformed scalar access is not whole-object",
+          "rule": "V03",
+          "operation": "READ/WRITE"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D30",
+      "original_line": 2704,
+      "function": "current_body",
+      "current_emitters": [
+        {
+          "line": 2735,
+          "message": "transaction current body cannot be snapshotted",
+          "rule": "V08",
+          "operation": "current body proof"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D31",
+      "original_line": 2720,
+      "function": "current_body",
+      "current_emitters": [
+        {
+          "line": 2754,
+          "message": "transaction current body lacks a component result",
+          "rule": "V08",
+          "operation": "component result"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D32",
+      "original_line": 2726,
+      "function": "current_body",
+      "current_emitters": [
+        {
+          "line": 2764,
+          "message": "transaction body changed during current verification",
+          "rule": "V08",
+          "operation": "current body proof"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D33",
+      "original_line": 2738,
+      "function": "newtm_clone_verify_current",
+      "current_emitters": [
+        {
+          "line": 2777,
+          "message": "transaction current graph has no source controller",
+          "rule": "V07",
+          "operation": "source controller ownership"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D34",
+      "original_line": 2746,
+      "function": "newtm_clone_verify_current",
+      "current_emitters": [
+        {
+          "line": 2787,
+          "message": "transaction current graph contains an unprepared member",
+          "rule": "V06",
+          "operation": "prepared graph member"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D35",
+      "original_line": 2757,
+      "function": "newtm_clone_verify_current",
+      "current_emitters": [
+        {
+          "line": 2803,
+          "message": "transaction current controller lacks its component results: OWNER unavailable",
+          "rule": "V08",
+          "operation": "controller OWNER result"
+        },
+        {
+          "line": 2809,
+          "message": "transaction current controller lacks its component results: entry COVERAGE unavailable",
+          "rule": "V08",
+          "operation": "controller entry COVERAGE result"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    },
+    {
+      "id": "D36",
+      "original_line": 2774,
+      "function": "newtm_clone_verify_current",
+      "current_emitters": [
+        {
+          "line": 2829,
+          "message": "transaction current graph lost an outlining producer",
+          "rule": "V08",
+          "operation": "current graph proof"
+        }
+      ],
+      "context": "common diagnostic context and source fallback"
+    }
+  ],
+  "source_sha256": {
+    "gcc-src-tm/gcc/newtm-clone.cc": "7cf36767f086ff3cffbe84588cc6280778cae0b4925faaacd0cdfad31bfd39c5",
+    "gcc-src-tm/gcc/newtm-current.cc": "816a119de194d19407f85fc75f77bd708ab2d48900d147387545cbbae3c0e30c",
+    "gcc-src-tm/gcc/newtm-current.h": "39bde869aa1c311221476ed1936aebba780567c472e4587d3134f78e4cac5b64"
+  },
+  "validation": "Static coverage of every inventoried emitter; directed dynamic checks recorded separately",
+  "out_of_scope": "PRIVATE rule propagation in resolver::ranges remains step 3"
+}

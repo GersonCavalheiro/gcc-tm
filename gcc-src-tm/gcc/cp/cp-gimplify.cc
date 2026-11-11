@@ -41,6 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "file-prefix-map.h"
 #include "cgraph.h"
 #include "omp-general.h"
+#include "newtm-clone.h"
 #include "opts.h"
 #include "gcc-urlifier.h"
 #include "contracts.h" // build_contract_check ()
@@ -675,6 +676,15 @@ maybe_emit_clobber_object_begin (tree decl, gimple_seq *pre_p)
 int
 cp_gimplify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p)
 {
+  /* Prepared clones are created from already genericized bodies after parsing,
+     so start_preparsed_function did not allocate their C++ statement state.
+     Give each clone independent state; never borrow/mutate the original's
+     parser stacks. Classes, user cleanups and EH remain outside the subset. */
+  if (cfun && !cfun->language && newtm_clone_original (current_function_decl))
+    {
+      cfun->language = ggc_cleared_alloc<language_function> ();
+      current_stmt_tree ()->stmts_are_full_exprs_p = 1;
+    }
   int saved_stmts_are_full_exprs_p = 0;
   location_t loc = cp_expr_loc_or_input_loc (*expr_p);
   enum tree_code code = TREE_CODE (*expr_p);

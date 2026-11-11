@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Documentação do GCC-TM | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="next" href="01-transactional-model.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="documentacao-do-gcc-tm">Documentação do GCC-TM</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#indice">Índice</a></li>
+<li><a href="#estado-e-fontes-de-referencia">Estado e fontes de referência</a></li>
+</ul>
+</div>
+
+<p>A extensão experimental <code>#pragma omp transaction</code> implementa memória transacional em software no GCC e na libgomp. A base desta árvore é GCC 16.2.0. A diretiva é própria do projeto: não integra o padrão OpenMP e é distinta de GNU TM/libitm.</p>
+<h2 id="indice">Índice</h2>
+<ol>
+<li><a href="01-transactional-model.html">Modelo transacional e políticas por estágio</a></li>
+<li><a href="02-transaction-directive.html">Diretiva, opções e domínio suportado</a></li>
+<li><a href="03-internal-services.html">Serviços internos e exemplo da ABI</a></li>
+<li>Exemplos didáticos:</li>
+<li><a href="examples/01-bank-account.html">Conta bancária: depósito e transferência</a></li>
+<li><a href="examples/02-workload.html">Carga: leituras e escritas concorrentes</a></li>
+<li><a href="04-implementation-map.html">Arquivos construídos e primitivas</a></li>
+<li><a href="05-gcc-changes.html">Alterações na infraestrutura existente do GCC</a></li>
+<li><a href="06-build-validation.html">Ambiente, compilação e validação</a></li>
+<li><a href="07-glossary.html">Glossário</a></li>
+</ol>
+<p>Para aprender a usar a diretiva, leia o modelo, a sintaxe e os exemplos. Para alterar a implementação, prossiga pelos serviços, mapa de arquivos e integração no GCC.</p>
+<p>Consulte a <a href="01-transactional-model.html#classificacao-das-seis-politicas-implementadas">classificação explícita das seis políticas</a>: detecção eager, resolução por descarte do solicitante com backoff, atualização adiada, granularidade por objeto, isolamento por reservas e privatização explícita com quiescência.</p>
+<p><a href="../examples/index.html">Exemplos implementados: oito programas em quatro versões, com Makefiles e validação automática.</a></p>
+<h2 id="estado-e-fontes-de-referencia">Estado e fontes de referência</h2>
+<p>A etapa 6.6 está concluída e aprovada no domínio experimental Linux x86_64/C/C++ descrito no <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final de 2026-11-11</a>. Essa aceitação não qualifica outras plataformas ou uso geral em produção.</p>
+<p>Esta documentação descreve a implementação atual. As <a href="../gcc-src-tm/OPENMP_TRANSACTION_DECISIONS.md">decisões de projeto</a>, os cabeçalhos e os testes sustentam os detalhes contratuais. Documentos históricos na árvore de fontes preservam etapas intermediárias e devem ser lidos com suas datas. Novas funcionalidades não são implicadas por planos antigos.</p>
+<p>Os exemplos completos estão em blocos C nas páginas HTML; copie-os para arquivos de trabalho fora de <code>docs/</code>. Os comandos de compilação estão no guia de validação.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="next" href="01-transactional-model.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

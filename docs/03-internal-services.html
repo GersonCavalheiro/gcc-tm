@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Serviços internos e ABI | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="02-transaction-directive.html">← Anterior</a> <a rel="next" href="examples/01-bank-account.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="servicos-internos-e-abi">Serviços internos e ABI</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#duas-interfaces-diferentes">Duas interfaces diferentes</a></li>
+<li><a href="#tipos-e-convencoes">Tipos e convenções</a></li>
+<li><a href="#servicos-exportados">Serviços exportados</a></li>
+<li><a href="#exemplo-completo-controlador-explicito-de-deposito">Exemplo completo: controlador explícito de depósito</a></li>
+<li><a href="#variacoes-didaticas-do-protocolo">Variações didáticas do protocolo</a></li>
+<li><a href="#primitivas-privadas">Primitivas privadas</a></li>
+<li><a href="#exemplos-completos-existentes-com-a-interface-privada">Exemplos completos existentes com a interface privada</a></li>
+</ul>
+</div>
+
+<p><a href="index.html">Índice</a> · <a href="01-transactional-model.html">Modelo</a></p>
+<h2 id="duas-interfaces-diferentes">Duas interfaces diferentes</h2>
+<p>A ABI <code>GOMP_transaction_stm_v1_*</code> liga o código gerado à libgomp e está declarada no <a href="../gcc-src-tm/include/newtm-abi.h">cabeçalho compartilhado</a>. Os símbolos são exportados em <code>GOMP_NEWTM_2.0</code>. As primitivas <code>newtm_*</code> são internas, com visibilidade oculta; programas comuns devem usar a diretiva. Testes internos podem ligar o archive estático com os cabeçalhos privados apropriados.</p>
+<p>O rastreamento usa os serviços separados <code>GOMP_transaction_begin/register/end</code>, em <code>GOMP_NEWTM_1.0</code>. Eles não substituem a ABI STM.</p>
+<h2 id="tipos-e-convencoes">Tipos e convenções</h2>
+<p><code>newtm_status_v1</code> é <code>uint32_t</code>: <code>NEWTM_ABI_OK=0</code>, <code>NEWTM_ABI_CONFLICT=1</code>, <code>NEWTM_ABI_INVALID=2</code>. <code>newtm_slot_v1</code> contém um ponteiro opaco para contexto. O slot é do chamador, começa nulo, tem endereço estável e não pode ser copiado como um segundo proprietário. O contexto passado aos serviços é emprestado.</p>
+<p><code>newtm_binding_v1</code> contém <code>object</code>, <code>object_size</code>, <code>offset</code> e <code>kind</code>. <code>newtm_clone_binding_v1</code> acrescenta <code>storage</code>, com REGISTERED ou PRIVATE. Esses descritores representam identidade, não propriedade de buffers ou referências. O layout usa alinhamento nativo do alvo; não é formato portátil de rede.</p>
+<h2 id="servicos-exportados">Serviços exportados</h2>
+<p>Todos os serviços abaixo têm prefixo <code>GOMP_transaction_stm_v1_</code>. <code>ctx</code> é um contexto vivo do chamador; <code>slot</code> é o endereço do slot canônico. Exceto <code>fatal</code>, os retornos são <code>newtm_status_v1</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Serviço e argumentos</th>
+<th>Contrato principal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>begin(newtm_slot_v1 *slot, uint32_t *outermost)</code></td>
+<td>Inicia tentativa; devolve indicação externa, mantém lease. Não registra objetos implicitamente</td>
+</tr>
+<tr>
+<td><code>register(ctx, const void *object, size_t size, uint32_t kind)</code></td>
+<td>Registra identidade/tamanho; <code>NEWTM_ABI_SCALAR</code> ou <code>NEWTM_ABI_AGGREGATE</code></td>
+</tr>
+<tr>
+<td><code>read(ctx, const void *object, size_t offset, void *destination, size_t size)</code></td>
+<td>Reserva/lê faixa; consumir destino somente depois de OK</td>
+</tr>
+<tr>
+<td><code>write(ctx, const void *object, size_t offset, const void *source, size_t size)</code></td>
+<td>Reserva/escreve faixa no buffer privado</td>
+</tr>
+<tr>
+<td><code>status(ctx)</code></td>
+<td>Consulta a situação efetiva da tentativa</td>
+</tr>
+<tr>
+<td><code>nest_begin(ctx)</code></td>
+<td>Entra em região plana sem transferir propriedade</td>
+</tr>
+<tr>
+<td><code>nest_end(ctx)</code></td>
+<td>Sai da região interna sem commit externo</td>
+</tr>
+<tr>
+<td><code>end(newtm_slot_v1 *slot)</code></td>
+<td>Confirma na saída externa; sucesso consome o contexto e zera o slot</td>
+</tr>
+<tr>
+<td><code>fail(ctx, uint32_t cause)</code></td>
+<td>Condena sem limpar; INVALID prevalece, causa desconhecida/OK é inválida</td>
+</tr>
+<tr>
+<td><code>discard(newtm_slot_v1 *slot)</code></td>
+<td>Consome tentativa não publicada; não faz retry por si só</td>
+</tr>
+<tr>
+<td><code>after_failure(newtm_slot_v1 *slot, size_t attempt)</code></td>
+<td>Limpa todos os níveis; conflito faz backoff e retorna CONFLICT; INVALID termina fatalmente após limpar</td>
+</tr>
+<tr>
+<td><code>fatal(uint32_t cause)</code></td>
+<td>Retorno <code>void</code>, noreturn; não limpa um contexto vivo</td>
+</tr>
+</tbody>
+</table>
+<p>Objetos, slots e buffers precisam continuar válidos. Os buffers de entrada/saída devem ser independentes e viver durante a chamada. Falhas de acesso preservam a saída; um ponteiro pendente continua violando o contrato, mesmo se não for NULL. Falhas anteriores à publicação em <code>end</code> deixam os recursos disponíveis para o epílogo de falha.</p>
+<h2 id="exemplo-completo-controlador-explicito-de-deposito">Exemplo completo: controlador explícito de depósito</h2>
+<p>Este exemplo ensina o protocolo que normalmente é gerado pelo compilador. Não há diretiva no programa. Compile com o include <code>gcc-src-tm/include</code>, ligue à libgomp local com <code>-lgomp -pthread</code> e configure o rpath conforme o <a href="06-build-validation.html">guia</a>.</p>
+<pre><code class="language-c">#include &quot;newtm-abi.h&quot;
+#include &lt;assert.h&gt;
+#include &lt;stdint.h&gt;
+
+int main(void)
+{
+  int saldo = 10000;
+  size_t conflitos = 0;
+  for (;;)
+    {
+      newtm_slot_v1 slot = 0;
+      uint32_t externa = 0;
+      newtm_status_v1 s = GOMP_transaction_stm_v1_begin(&amp;slot, &amp;externa);
+      if (s == NEWTM_ABI_OK &amp;&amp; externa != 1)
+        s = GOMP_transaction_stm_v1_fail(slot, NEWTM_ABI_INVALID);
+      if (s == NEWTM_ABI_OK)
+        s = GOMP_transaction_stm_v1_register(slot, &amp;saldo, sizeof saldo,
+                                            NEWTM_ABI_SCALAR);
+      int valor = 0;
+      if (s == NEWTM_ABI_OK)
+        s = GOMP_transaction_stm_v1_read(slot, &amp;saldo, 0, &amp;valor, sizeof valor);
+      if (s == NEWTM_ABI_OK)
+        {
+          valor += 2500;
+          s = GOMP_transaction_stm_v1_write(slot, &amp;saldo, 0, &amp;valor, sizeof valor);
+        }
+      if (s == NEWTM_ABI_OK)
+        s = GOMP_transaction_stm_v1_end(&amp;slot);
+      if (s == NEWTM_ABI_OK)
+        {
+          assert(slot == 0);
+          break;
+        }
+      if (!slot)
+        GOMP_transaction_stm_v1_fatal(s);
+      s = GOMP_transaction_stm_v1_fail(slot, s);
+      if (s == NEWTM_ABI_CONFLICT &amp;&amp; conflitos != SIZE_MAX)
+        ++conflitos;
+      s = GOMP_transaction_stm_v1_after_failure(&amp;slot,
+                                               conflitos ? conflitos : 1);
+      if (s != NEWTM_ABI_CONFLICT)
+        GOMP_transaction_stm_v1_fatal(s);
+    }
+  assert(saldo == 12500);
+  return 0;
+}
+</code></pre>
+<p>O valor lido só é usado depois de OK. Cada tentativa recria <code>valor</code>; o contador de conflitos fica fora do contexto descartado. Se a entrada falhar sem contexto, usa-se <code>fatal</code>; se existir contexto, a saída passa por <code>after_failure</code>. Não se deve chamar <code>fatal</code> diretamente abandonando reservas vivas.</p>
+<h2 id="variacoes-didaticas-do-protocolo">Variações didáticas do protocolo</h2>
+<p>Para cancelar voluntariamente uma tentativa ativa, a sequência é <code>begin → register → write → discard</code>, verificando cada retorno. Com saldo inicial 10.000 e escrita privada 12.500, um <code>discard</code> bem-sucedido deixa o saldo em 10.000. Ele não pede retry automaticamente.</p>
+<p>Para aninhamento preparado, a sequência é <code>begin → register → nest_begin → read/write → nest_end → end</code>. As falhas internas retornam ao controlador externo. Não passe o slot proprietário a uma função que só deveria tomar o contexto emprestado.</p>
+<p>Para uma faixa de agregado, registre a extensão canônica adequada e use deslocamento/tamanho em <code>read/write</code>. Não trate o endereço de um campo como autorização para acessar o objeto inteiro. Esses esquemas descrevem variações; não são programas completos nem dispensam o epílogo de falha demonstrado acima.</p>
+<h2 id="primitivas-privadas">Primitivas privadas</h2>
+<p>Os contratos completos estão nos cabeçalhos <a href="../gcc-src-tm/libgomp/newtm-hash.h">hash</a>, <a href="../gcc-src-tm/libgomp/newtm-transaction.h">transação</a> e <a href="../gcc-src-tm/libgomp/newtm-context.h">contexto</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Família</th>
+<th>Primitivas</th>
+<th>Responsabilidade</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tabela</td>
+<td><code>newtm_hash_create</code>, <code>newtm_hash_destroy</code></td>
+<td>Criar; destruir somente com quiescência, preservando tabela em BUSY</td>
+</tr>
+<tr>
+<td>Referências</td>
+<td><code>newtm_hash_acquire</code>, <code>newtm_hash_lookup_acquire</code>, <code>newtm_hash_release</code></td>
+<td>Reter por identidade; consulta sem inserção; liberar uma referência por aquisição bem-sucedida</td>
+</tr>
+<tr>
+<td>Consultas</td>
+<td><code>newtm_hash_entry_address</code>, <code>newtm_hash_entry_size</code></td>
+<td>Ler propriedades imutáveis com referência viva</td>
+</tr>
+<tr>
+<td>Metadados</td>
+<td><code>newtm_hash_entry_visit</code></td>
+<td>Callback sob mutex do bucket, sem espera/reentrada</td>
+</tr>
+<tr>
+<td>Diagnóstico</td>
+<td><code>newtm_hash_count</code></td>
+<td>Contagem consistente saturada; não prova quiescência</td>
+</tr>
+<tr>
+<td>Ciclo</td>
+<td><code>newtm_begin</code>, <code>newtm_register</code>, <code>newtm_end</code>, <code>newtm_fail</code>, <code>newtm_discard</code></td>
+<td>Propriedade, registro, publicação e descarte</td>
+</tr>
+<tr>
+<td>Acesso</td>
+<td><code>newtm_reserve</code>, <code>newtm_read</code>, <code>newtm_write</code></td>
+<td>Reservas e valores privados</td>
+</tr>
+<tr>
+<td>Controle</td>
+<td><code>newtm_after_failure</code>, <code>newtm_backoff</code>, <code>newtm_execute</code></td>
+<td>Limpeza/retry externo de corpos explicitamente preparados</td>
+</tr>
+<tr>
+<td>Política</td>
+<td><code>newtm_policy_destroy</code></td>
+<td>Destruir metadados após retirada da última referência</td>
+</tr>
+</tbody>
+</table>
+<p>Os enums de hash, acesso e ciclo de vida são contratos distintos; não faça casts para substituir traduções explícitas. Uma aquisição de hash exige exatamente uma liberação; copiar o ponteiro não retém outra referência. Um exemplo mínimo de uso conceitual é criar tabela, adquirir entrada, consultar endereço/tamanho, liberar e destruir após quiescência. Isso testa identidade e vida útil, não uma transação.</p>
+<p>O callback de <code>newtm_execute</code> recebe contexto emprestado e deve registrar, verificar e propagar todas as falhas. Não pode consumir o slot externo ou escrever resultados especulativos em seu argumento estável: o controlador não desfaz essas escritas arbitrárias. Para exemplos executáveis das primitivas privadas, veja os alvos <code>check-hash-*</code> e <code>check-lifecycle</code> no guia de validação.</p>
+<h2 id="exemplos-completos-existentes-com-a-interface-privada">Exemplos completos existentes com a interface privada</h2>
+<p>Os fontes <a href="../transaction_test/transaction_interno_simples.c">transaction_interno_simples.c</a> e <a href="../transaction_test/transaction_interno_carga.c">transaction_interno_carga.c</a> demonstram corpos preparados manualmente com <code>newtm_execute</code>, registro e acesso privado. O segundo mantém o par <code>value</code>/<code>inverse</code> coerente sem <code>critical</code>. Seu argumento de controle é estável entre retries; os resultados são publicados no objeto registrado.</p>
+<pre><code class="language-sh">make -C transaction_test exemplos-internos
+make -C transaction_test check-internos
+transaction_test/.build/transaction_interno_carga 4 1:9 100
+</code></pre>
+<p>O Makefile compila OpenMP separadamente e liga o archive local sem acrescentar uma segunda libgomp dinâmica. Essa forma de ligação é necessária para os símbolos privados e difere do pequeno exemplo da ABI exportada acima.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="02-transaction-directive.html">← Anterior</a> <a rel="next" href="examples/01-bank-account.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

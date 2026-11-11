@@ -1,0 +1,20 @@
+# Per-example build directories: objects, executables, logs and experiment results.
+.build/
+
+# Benchmark reports, raw measurements, plots and environment snapshots.
+/benchmarks/results*/
+/benchmarks/experiment*/
+
+# Objects and executables produced outside the standard build directories.
+*.o
+*.obj
+*.exe
+*.out
+/*/sequential
+/*/internal
+/*/directive
+/*/gnu_tm
+
+# Python bytecode and caches.
+__pycache__/
+*.pyc

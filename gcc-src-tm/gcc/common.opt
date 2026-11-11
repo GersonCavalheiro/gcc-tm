@@ -3210,6 +3210,10 @@ ftransaction-debug
 Common Var(flag_transaction_debug)
 Print experimental OpenMP transaction compiler diagnostics.
 
+fopenmp-transaction-stm
+Common Var(flag_openmp_transaction_stm)
+Execute experimental OpenMP transaction regions through the STM ABI.
+
 ; Zero means that floating-point math operations cannot generate a
 ; (user-visible) trap.  This is the case, for example, in nonstop
 ; IEEE 754 arithmetic.

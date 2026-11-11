@@ -43,6 +43,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimplify-me.h"
 #include "gimple-walk.h"
 #include "tree-cfg.h"
+#include "newtm-clone.h"
 #include "tree-ssa-loop-manip.h"
 #include "tree-ssa-loop-niter.h"
 #include "tree-into-ssa.h"
@@ -7019,6 +7020,7 @@ replace_by_duplicate_decl (tree *tp, hash_map<tree, tree> *vars_map,
 	}
       DECL_CONTEXT (new_t) = to_context;
 
+      newtm_clone_record_decl (new_t, t);
       loc = new_t;
     }
   else

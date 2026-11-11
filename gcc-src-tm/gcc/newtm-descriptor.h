@@ -21,10 +21,12 @@ enum newtm_descriptor_field
   NEWTM_D_OBJECT, NEWTM_D_EXTENT, NEWTM_D_OFFSET, NEWTM_D_KIND,
   NEWTM_D_SIZE, NEWTM_D_VALID, NEWTM_D_STATE, NEWTM_D_ORIGIN,
   NEWTM_D_CHANNEL, NEWTM_D_KIND_VALUE, NEWTM_D_EXTENT_VALUE,
-  NEWTM_D_LOGICAL, NEWTM_D_LOCAL_VALID, NEWTM_D_FIELDS
+  NEWTM_D_LOGICAL, NEWTM_D_LOCAL_VALID, NEWTM_D_STORAGE, NEWTM_D_FIELDS
 };
-/* Only REGISTERED/PRIVATE/UNREGISTERED have materialized object/extent/kind
-   fields. INCOMING/RESULT are explicit binding channels, never invented values.
+/* Original candidates retain unresolved INCOMING/RESULT channels. Prepared
+   clones resolve them from their per-activation transport, preserving CHANNEL
+   and adding STORAGE (registered/private) alongside materialized identity.
+   Unresolved channels never carry invented object/extent/kind/valid fields.
    VALID is structural/range validity, not authorization to access memory.
    Context registration and reservations remain runtime responsibilities.
    Logical references are metadata, not recipes to evaluate. Descriptors expire
@@ -37,7 +39,13 @@ extern void newtm_descriptor_note_function (tree);
 extern void newtm_descriptor_function (tree);
 extern tree newtm_descriptor_entries (const gimple *);
 extern tree newtm_descriptor_find (const gimple *, newtm_descriptor_role, unsigned = 0);
+/* Adds a proof obligation; never permission to execute unchecked arithmetic. */
+extern bool newtm_descriptor_math_p (const gimple *);
+extern gbind *newtm_descriptor_take_prefix (const gimple *);
+extern tree newtm_descriptor_reference_snapshot (const gimple *);
 extern void newtm_descriptor_copy (const gimple *, gimple *);
 extern void newtm_descriptor_retire (gimple_seq);
+extern void newtm_descriptor_forget (const gimple *);
+extern void newtm_descriptor_transfer_write (const gimple *, gimple *);
 extern void newtm_descriptor_reset ();
 #endif

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Carga de leituras e escritas | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="../index.html">Índice</a> <a rel="prev" href="01-bank-account.html">← Anterior</a> <a rel="next" href="../04-implementation-map.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="carga-de-leituras-e-escritas">Carga de leituras e escritas</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#versao-didatica-stm">Versão didática STM</a></li>
+<li><a href="#relacao-com-o-exemplo-parametrizado-existente">Relação com o exemplo parametrizado existente</a></li>
+</ul>
+</div>
+
+<p><a href="../index.html">Índice</a> · <a href="../06-build-validation.html">Compilação</a></p>
+<h2 id="versao-didatica-stm">Versão didática STM</h2>
+<p>Este programa distribui 400 operações por uma equipe OpenMP: 40 escritas e 360 leituras, relação 1:9. Cada escrita incrementa um contador. Cada leitura copia uma observação consistente para um objeto local que também é registrado, pois sua vida começou antes da tentativa. O número de threads solicitado é quatro; a contagem total não depende de o ambiente conceder toda a equipe.</p>
+<pre><code class="language-c">#include &lt;assert.h&gt;
+
+int main(void)
+{
+  int valor = 0;
+  #pragma omp parallel for num_threads(4)
+  for (int i = 0; i &lt; 400; ++i)
+    {
+      if (i % 10 == 0)
+        {
+          #pragma omp transaction (valor)
+          {
+            valor += 1;
+          }
+        }
+      else
+        {
+          int observado = 0;
+          #pragma omp transaction (valor, observado)
+          {
+            observado = valor;
+          }
+          assert(observado &gt;= 0 &amp;&amp; observado &lt;= 40);
+        }
+    }
+  assert(valor == 40);
+  return 0;
+}
+</code></pre>
+<p>Compile obrigatoriamente no modo funcional. O corpo não usa <code>critical</code>; o protocolo STM protege todos os acessos concorrentes a <code>valor</code>. A asserção final ocorre após a barreira implícita do <code>parallel for</code>. O programa verifica o resultado, mas não exige uma quantidade de conflitos: o escalonador pode serializar as operações.</p>
+<h2 id="relacao-com-o-exemplo-parametrizado-existente">Relação com o exemplo parametrizado existente</h2>
+<p>O arquivo <a href="../../transaction_test/transaction_carga.c">transaction_carga.c</a> é um exercício maior da infraestrutura de rastreamento. Seu <code>critical(transaction_carga_state)</code> externo à diretiva protege os valores. O Makefile padrão usa <code>-fopenmp</code>, sem selecionar STM. Seus resultados não constituem uma medição de isolamento ou desempenho STM.</p>
+<p>Na raiz do repositório:</p>
+<pre><code class="language-sh">make -C transaction_test check-carga CARGA_THREADS=4 CARGA_REPETICOES=1000
+transaction_test/.build/transaction_carga 4 1:9 1000
+</code></pre>
+<p>Os argumentos são threads, pesos <strong>escritas:leituras</strong> e repetições <strong>por thread</strong>. Para N repetições e pesos W:R, cada thread realiza <code>floor(N*W/(W+R))</code> escritas. O comando acima corresponde a 4.000 operações, 400 escritas e 3.600 leituras; o valor final é 400. O verificador também confere a consistência do agregado e a infraestrutura de registro/liberação.</p>
+<p>Pesos e soma devem caber em <code>uint32_t</code>, com soma positiva. Threads e repetições devem ser positivas e o total deve caber em <code>unsigned long long</code>. Esse programa maior exige a equipe solicitada. O alvo <code>check-carga</code> cobre 1:9, 1:1 e 9:1; os logs ficam em <code>transaction_test/.build/</code>.</p>
+<p>A versão didática fixa o total global em 400 para simplificar a leitura. Ela é um programa separado; não altera o significado nem os parâmetros do exercício original. Logs de depuração e tamanho reduzido também impedem interpretar esses exemplos como benchmark.</p>
+<p>Há também uma versão maior com serviços privados, <a href="../../transaction_test/transaction_interno_carga.c">transaction_interno_carga.c</a>, que usa STM real sem <code>critical</code>. Consulte <a href="../03-internal-services.html">serviços internos</a> para sua forma de compilação e execução. Ela complementa a miniatura com diretiva mostrada neste capítulo.</p><p>Fontes compiláveis nas quatro variantes: <a href="../../examples/04-workload/index.html">exemplo implementado</a>. <a href="../../examples/index.html">Todos os examples</a>.</p></main><footer><nav aria-label="Navegação da documentação"><a href="../index.html">Índice</a> <a rel="prev" href="01-bank-account.html">← Anterior</a> <a rel="next" href="../04-implementation-map.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

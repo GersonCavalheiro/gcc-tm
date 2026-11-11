@@ -40,6 +40,8 @@ extern bool GOMP_barrier_cancel (void);
 
 /* critical.c */
 
+#include "../include/newtm-abi.h"
+
 extern void GOMP_transaction_begin (void);
 extern void GOMP_transaction_register (void *, size_t);
 extern void GOMP_transaction_end (void);

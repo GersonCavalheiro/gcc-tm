@@ -324,7 +324,7 @@ Objective-C and Objective-C++ Dialects}.
 @gccoptlist{-foffload=@var{arg}  -foffload-options=@var{arg}
 -fopenacc  -fopenacc-dim=@var{geom}
 -fopenmp  -fopenmp-simd  -fopenmp-target-simd-clone@r{[}=@var{device-type}@r{]}
--ftransaction-debug}
+-ftransaction-debug -fopenmp-transaction-stm}
 
 @item Diagnostic Message Formatting Options
 @xref{Diagnostic Message Formatting Options,,Options to Control Diagnostic Messages Formatting}.
@@ -5569,6 +5569,17 @@ In fixed source form Fortran, the sentinels can also start with
 This option implies @option{-pthread}, and thus is only supported on
 targets that have support for @option{-pthread}. @option{-fopenmp}
 implies @option{-fopenmp-simd}.
+
+@item -fopenmp-transaction-stm
+@opindex fopenmp-transaction-stm
+@opindex fno-openmp-transaction-stm
+With @option{-fopenmp}, execute the experimental C/C++
+@code{#pragma omp transaction} extension through the STM runtime ABI.
+The generated controller confirms successful attempts and discards and retries
+the complete outer block on conflict.  Permanent errors terminate after cleanup.
+Unsupported bodies or entry identities are diagnosed; this mode never falls
+back to tracing.  This option is disabled by default and requires a matching
+experimental libgomp with the @code{GOMP_NEWTM_2.1} ABI extension.
 
 @item -ftransaction-debug
 @opindex ftransaction-debug

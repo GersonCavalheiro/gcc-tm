@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Alterações nos arquivos existentes do GCC | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="04-implementation-map.html">← Anterior</a> <a rel="next" href="06-build-validation.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="alteracoes-nos-arquivos-existentes-do-gcc">Alterações nos arquivos existentes do GCC</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#por-que-preservar-e-reconstruir-evidencias">Por que preservar e reconstruir evidências</a></li>
+<li><a href="#manutencao">Manutenção</a></li>
+</ul>
+</div>
+
+<p><a href="index.html">Índice</a> · <a href="04-implementation-map.html">Módulos específicos</a></p>
+<p>A extensão atravessa front-ends, representação intermediária, preparação OpenMP, otimizações, LTO e runtime. Este mapa agrupa os arquivos existentes por finalidade; não pretende reproduzir um diff contra uma versão externa do GCC. Todos os caminhos são relativos a <code>gcc-src-tm/</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Área</th>
+<th>Arquivos existentes envolvidos</th>
+<th>Alteração relacionada à extensão</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pragma e semântica comum</td>
+<td><code>gcc/c-family/c-pragma.cc/.h</code>, <code>c-common.h</code>, <code>c-omp.cc</code></td>
+<td>Identificação da diretiva, contratos e tratamento comum</td>
+</tr>
+<tr>
+<td>Front-end C</td>
+<td><code>gcc/c/c-parser.cc</code>, <code>c-typeck.cc</code></td>
+<td>Parsing do bloco/lista e construção semântica</td>
+</tr>
+<tr>
+<td>Front-end C++</td>
+<td><code>gcc/cp/parser.cc</code>, <code>pt.cc</code>, <code>decl.cc</code>, <code>expr.cc</code>, <code>constexpr.cc</code>, <code>module.cc</code></td>
+<td>Parsing, templates, declarações e preservação das informações pertinentes</td>
+</tr>
+<tr>
+<td>Representação</td>
+<td><code>gcc/tree.def</code>, <code>tree.h</code>, <code>gimple.def</code>, <code>gimple.h</code></td>
+<td>Nós e acesso aos operandos da diretiva</td>
+</tr>
+<tr>
+<td>Gimplificação</td>
+<td><code>gcc/gimplify.cc</code>, <code>c-family/c-gimplify.cc</code>, <code>cp/cp-gimplify.cc</code></td>
+<td>Conversão para GIMPLE e preservação de ocorrências/origens</td>
+</tr>
+<tr>
+<td>Inspeção</td>
+<td><code>gcc/tree-pretty-print.cc</code>, <code>gimple-pretty-print.cc</code>, <code>gimple-walk.cc</code></td>
+<td>Impressão e percurso dos novos nós</td>
+</tr>
+<tr>
+<td>OpenMP</td>
+<td><code>gcc/omp-low.cc</code>, <code>omp-expand.cc</code></td>
+<td>Preparação, bindings, instrumentação e geração de controle</td>
+</tr>
+<tr>
+<td>Builtins</td>
+<td><code>gcc/omp-builtins.def</code>, <code>builtin-types.def</code></td>
+<td>Declarações e tipos das chamadas ao runtime</td>
+</tr>
+<tr>
+<td>Cópia, CFG e SSA</td>
+<td><code>gcc/tree-inline.cc</code>, <code>tree-nested.cc</code>, <code>tree-cfg.cc</code>, <code>tree-into-ssa.cc</code></td>
+<td>Remapeamento de identidades/capturas e atualização ou invalidação da evidência</td>
+</tr>
+<tr>
+<td>Unidade de compilação</td>
+<td><code>gcc/cgraphunit.cc</code></td>
+<td>Integração das unidades/funções preparadas ao pipeline</td>
+</tr>
+<tr>
+<td>LTO: streaming</td>
+<td><code>gcc/lto-streamer-in.cc</code>, <code>lto-streamer-out.cc</code>, <code>lto-streamer.h</code></td>
+<td>Escrita/leitura dos contratos declarativos; versão de formato 16.1</td>
+</tr>
+<tr>
+<td>LTO: execução/partição</td>
+<td><code>gcc/lto/lto.cc</code>, <code>lto-partition.cc</code></td>
+<td>Reconstrução e preservação conjunta das unidades preparadas</td>
+</tr>
+<tr>
+<td>Opções e build</td>
+<td><code>gcc/common.opt</code>, <code>Makefile.in</code>, <code>doc/invoke.texi</code></td>
+<td>Opção explícita STM, compilação dos módulos e ajuda</td>
+</tr>
+<tr>
+<td>Runtime/build/exportação</td>
+<td><code>libgomp/Makefile.am</code>, <code>Makefile.in</code>, <code>libgomp.map</code>, <code>libgomp_g.h</code></td>
+<td>Integração dos fontes, declarações e versões dos símbolos</td>
+</tr>
+</tbody>
+</table>
+<h2 id="por-que-preservar-e-reconstruir-evidencias">Por que preservar e reconstruir evidências</h2>
+<p>Movimentar ou copiar uma operação pode invalidar identidade, ownership, controle de falha ou vida útil demonstrados antes. Os pontos de integração mantêm o vínculo com a representação atual e notificam as mudanças pertinentes. Contratos LTO não serializam ponteiros internos nem aprovação histórica.</p>
+<p>As unidades preparadas têm restrições de otimização e de inlining durante as janelas de prova, incluindo preservação de O0/noipa até a restauração final pertinente. O particionamento mantém juntas as unidades que dependem dessa preparação. Isso integra o domínio conservador aceito; não é promessa de certificar qualquer transformação SSA.</p>
+<h2 id="manutencao">Manutenção</h2>
+<p>Mudanças nesses arquivos exigem revisar os contratos dos módulos <code>newtm-*</code> afetados, os testes positivos e as contraprovas integradas. Uma modificação no runtime também exige conferir ABI, símbolos exportados e biblioteca realmente carregada. O <a href="06-build-validation.html">guia de validação</a> reúne os comandos e diferencia testes de infraestrutura de execução STM.</p>
+<p>Os documentos de engenharia originais permanecem disponíveis: <a href="../gcc-src-tm/OPENMP_TRANSACTION_PROJECT_AGENT.md">panorama</a>, <a href="../gcc-src-tm/OPENMP_AGENT.md">guia OpenMP</a>, <a href="../gcc-src-tm/OPENMP_TRANSACTION_SCOPE_AGENT.md">escopo</a> e <a href="../gcc-src-tm/OPENMP_TRANSACTION_DECISIONS.md">decisões</a>. O <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final</a> prevalece para o encerramento e os limites da etapa 6.6.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="04-implementation-map.html">← Anterior</a> <a rel="next" href="06-build-validation.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

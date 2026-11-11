@@ -13,6 +13,7 @@
 #include "gimplify.h"
 #include "ggc.h"
 #include "newtm-descriptor.h"
+#include "newtm-clone.h"
 #include "diagnostic-core.h"
 int plugin_is_GPL_compatible;
 static unsigned checked;
@@ -27,7 +28,12 @@ static void survey (gimple *stmt)
       unsigned role = tree_to_uhwi (TREE_VEC_ELT (TREE_PURPOSE (p), 0));
       gcc_assert (state < 8 && role < 7);
       ++states[state]; ++roles[role];
-      if (state <= NEWTM_DESC_UNREGISTERED)
+      bool resolved = newtm_clone_original (current_function_decl)
+        && (state == NEWTM_DESC_INCOMING || state == NEWTM_DESC_RESULT)
+        && TREE_VEC_ELT (d, NEWTM_D_OBJECT);
+      if (resolved) gcc_assert (TREE_VEC_ELT (d, NEWTM_D_CHANNEL)
+                               && TREE_VEC_ELT (d, NEWTM_D_STORAGE));
+      if (state <= NEWTM_DESC_UNREGISTERED || resolved)
         {
           gcc_assert (TREE_VEC_ELT (d, NEWTM_D_OBJECT)
                       && TREE_TYPE (TREE_VEC_ELT (d, NEWTM_D_OBJECT)) == ptr_type_node);

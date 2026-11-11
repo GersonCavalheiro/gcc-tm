@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Compilação e validação | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="05-gcc-changes.html">← Anterior</a> <a rel="next" href="07-glossary.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="compilacao-e-validacao">Compilação e validação</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#preparar-o-ambiente">Preparar o ambiente</a></li>
+<li><a href="#compilar-fora-dos-fontes">Compilar fora dos fontes</a></li>
+<li><a href="#confirmar-que-esta-usando-o-gcc-em-desenvolvimento">Confirmar que está usando o GCC em desenvolvimento</a></li>
+<li><a href="#executar-os-testes">Executar os testes</a><ul>
+<li><a href="#exemplos-e-rastreamento">Exemplos e rastreamento</a></li>
+<li><a href="#modo-funcional-provas-e-lto">Modo funcional, provas e LTO</a></li>
+<li><a href="#carga-parametrizada-de-leituras-e-escritas">Carga parametrizada de leituras e escritas</a></li>
+<li><a href="#criacao-e-destruicao-da-tabela-hash">Criação e destruição da tabela hash</a></li>
+<li><a href="#aquisicao-e-consulta-de-entradas">Aquisição e consulta de entradas</a></li>
+<li><a href="#consultas-e-visita-de-metadados">Consultas e visita de metadados</a></li>
+<li><a href="#contagem-consistente-de-entradas">Contagem consistente de entradas</a></li>
+<li><a href="#diagnosticos-sem-inversao-de-locks">Diagnósticos sem inversão de locks</a></li>
+<li><a href="#admissao-e-encerramento-da-tabela-global">Admissão e encerramento da tabela global</a></li>
+<li><a href="#suites-dejagnu-do-compilador-e-da-libgomp">Suítes DejaGNU do compilador e da libgomp</a></li>
+<li><a href="#checkpoint-da-base-atual">Checkpoint da base atual</a></li>
+</ul>
+</li>
+<li><a href="#validacao-dos-exemplos-desta-documentacao">Validação dos exemplos desta documentação</a><ul>
+<li><a href="#conferencia-desta-edicao-documental">Conferência desta edição documental</a></li>
+</ul>
+</li>
+</ul>
+</div>
+
+<p><a href="index.html">Índice</a></p>
+<p>Os comandos partem da raiz do repositório. As instruções abaixo preservam o guia operacional do projeto; os relatórios históricos descrevem a cobertura de cada etapa, não uma execução nova.</p>
+<h2 id="preparar-o-ambiente">Preparar o ambiente</h2>
+<p>Em Ubuntu 24.04, instale as dependências de compilação e dos testes:</p>
+<pre><code class="language-sh">sudo apt-get update
+sudo apt-get install -y build-essential binutils bison flex libgmp-dev \
+  libmpfr-dev libmpc-dev libisl-dev zlib1g-dev libzstd-dev python3 perl \
+  texinfo gawk dejagnu expect tcl git ca-certificates xz-utils
+</code></pre>
+<p>Alternativamente, a partir da raiz do repositório, prepare o contêiner:</p>
+<pre><code class="language-sh">docker build -f Dockerfile.gcc-tm -t gcc-tm-dev .
+docker run --rm -it -v &quot;$PWD:/usr/src/gcc-tm&quot; -w /usr/src/gcc-tm gcc-tm-dev
+</code></pre>
+<p>Execute a configuração e compilação abaixo dentro desse shell. Para os testes
+DejaGNU, instale também <code>dejagnu expect tcl</code> na imagem (a receita atual não os
+inclui); isso pode ser feito acrescentando-os à lista de pacotes do Dockerfile
+antes de construir a imagem. O volume preserva fontes e resultados no host.
+Use o mesmo ambiente para construir e executar: binários gerados no contêiner
+podem exigir uma glibc mais nova que a disponível no host.</p>
+<h2 id="compilar-fora-dos-fontes">Compilar fora dos fontes</h2>
+<p>Todos os comandos seguintes partem da raiz do repositório, salvo indicação.
+Configure um diretório de build novo, sem reutilizar configurações ou binários
+de outra máquina/ambiente:</p>
+<pre><code class="language-sh">mkdir -p gcc-build
+cd gcc-build
+../gcc-src-tm/configure \
+  --prefix=/usr/local/gcc-tm \
+  --enable-languages=c,c++ \
+  --enable-libgomp \
+  --disable-multilib \
+  --disable-bootstrap \
+  --disable-libsanitizer \
+  --disable-libquadmath \
+  --disable-libssp \
+  --disable-libvtv
+make -j&quot;$(nproc)&quot;
+cd ..
+</code></pre>
+<p>Essa configuração corresponde à usada no build local de desenvolvimento e evita
+dependências de bibliotecas de 32 bits. <code>--disable-bootstrap</code> reduz o trabalho de
+compilação, mas não realiza a validação de um bootstrap completo. Ajuste o número
+de tarefas à memória disponível. Se <code>gcc-build</code> já contiver um build incompatível,
+use outro diretório vazio e adapte os comandos, inclusive <code>GCC_BUILD</code> nos exemplos.</p>
+<p>Não é necessário instalar o compilador para desenvolver ou testar. Após mudanças,
+<code>make -C gcc-build -j"$(nproc)"</code> atualiza o build. Para alterações restritas às
+respectivas camadas, os relatórios também usam:</p>
+<pre><code class="language-sh">make -C gcc-build/gcc -j&quot;$(nproc)&quot; all
+make -C gcc-build/&quot;$(gcc-build/gcc/xgcc -dumpmachine)&quot;/libgomp -j&quot;$(nproc)&quot; all
+</code></pre>
+<h2 id="confirmar-que-esta-usando-o-gcc-em-desenvolvimento">Confirmar que está usando o GCC em desenvolvimento</h2>
+<p>Use caminhos explícitos: <code>gcc --version</code> sozinho pode mostrar o GCC do sistema,
+e o número 16.2.0 não comprova a presença da extensão. Na raiz do projeto:</p>
+<pre><code class="language-sh">export GCC_TM_ROOT=&quot;$PWD&quot;
+export GCC_TM_BUILD=&quot;$GCC_TM_ROOT/gcc-build&quot;
+export GCC_TM_CC=&quot;$GCC_TM_BUILD/gcc/xgcc&quot;
+export GCC_TM_TARGET=&quot;$(&quot;$GCC_TM_CC&quot; -dumpmachine)&quot;
+export GCC_TM_GOMP=&quot;$GCC_TM_BUILD/$GCC_TM_TARGET/libgomp&quot;
+
+&quot;$GCC_TM_CC&quot; -B&quot;$GCC_TM_BUILD/gcc/&quot; -v
+&quot;$GCC_TM_CC&quot; -B&quot;$GCC_TM_BUILD/gcc/&quot; -print-prog-name=cc1
+&quot;$GCC_TM_CC&quot; -B&quot;$GCC_TM_BUILD/gcc/&quot; -B&quot;$GCC_TM_GOMP/&quot; \
+  -L&quot;$GCC_TM_GOMP/.libs&quot; -print-file-name=libgomp.so
+command -v gcc
+</code></pre>
+<p>O <code>cc1</code> deve apontar para <code>gcc-build/gcc/</code> e a libgomp para o build selecionado.
+<code>xgcc</code> é o driver ainda não instalado; <code>-B</code> seleciona seus componentes. Alterar
+apenas o <code>PATH</code> para incluir <code>gcc-build/gcc</code> não faz <code>gcc</code> virar <code>xgcc</code>.</p>
+<p>Compile um exemplo real e confira também a biblioteca carregada em execução:</p>
+<pre><code class="language-sh">&quot;$GCC_TM_CC&quot; -B&quot;$GCC_TM_BUILD/gcc/&quot; -B&quot;$GCC_TM_GOMP/&quot; \
+  -I&quot;$GCC_TM_GOMP&quot; -fopenmp -ftransaction-debug \
+  transaction_test/transaction_aninhamento.c \
+  -L&quot;$GCC_TM_GOMP/.libs&quot; -Wl,-rpath,&quot;$GCC_TM_GOMP/.libs&quot; \
+  -o /tmp/gcc-tm-aninhamento
+LD_LIBRARY_PATH=&quot;$GCC_TM_GOMP/.libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}&quot; \
+  ldd /tmp/gcc-tm-aninhamento
+LD_LIBRARY_PATH=&quot;$GCC_TM_GOMP/.libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}&quot; \
+  /tmp/gcc-tm-aninhamento
+nm -D --defined-only &quot;$GCC_TM_GOMP/.libs/libgomp.so&quot; | rg 'GOMP_transaction_'
+</code></pre>
+<p>Na saída de <code>ldd</code>, <code>libgomp.so.1</code> deve resolver para o diretório do build. A
+biblioteca deve exportar <code>GOMP_transaction_begin</code>, <code>GOMP_transaction_register</code>
+e <code>GOMP_transaction_end</code> (versão <code>GOMP_NEWTM_1.0</code>). <code>-ftransaction-debug</code> habilita
+os diagnósticos específicos do compilador; os logs do runtime são independentes.
+Erros de símbolo/versão <code>GOMP_NEWTM_1.0</code> geralmente indicam uma libgomp antiga ou
+do sistema. As primitivas internas <code>newtm_*</code> não devem ser exportadas na DSO.
+O comando <code>rg</code> acima pode ser substituído por <code>grep</code> se ripgrep não estiver instalado.</p>
+<h2 id="executar-os-testes">Executar os testes</h2>
+<h3 id="exemplos-e-rastreamento">Exemplos e rastreamento</h3>
+<p>Depois de concluir o build:</p>
+<pre><code class="language-sh">make -C transaction_test -B check
+</code></pre>
+<p>O Makefile usa <code>../gcc-build/gcc/xgcc</code>, inclui <code>-fopenmp</code>, seleciona a libgomp
+local e grava executáveis/logs em <code>transaction_test/.build/</code>. O verificador
+exercita máximo paralelo com 1, 2 e 4 threads solicitadas, empate, aninhamento e
+registro/liberação dos objetos. O alvo <code>check</code> também depende de <code>check-internos</code>, que executa corpos STM preparados manualmente e ligados ao archive local; portanto não se limita ao rastreamento. Para outro build:</p>
+<pre><code class="language-sh">make -C transaction_test -B check GCC_BUILD=/caminho/absoluto/do/build
+</code></pre>
+<p>O Makefile atual fixa o alvo <code>x86_64-pc-linux-gnu</code>; em outra plataforma, adapte
+<code>GOMP_BUILD</code> ao alvo informado por <code>xgcc -dumpmachine</code>. Use <code>-B</code> no make para
+recompilar ao trocar compilador ou flags. <code>make -C transaction_test run</code> apenas
+executa os exemplos; <code>check</code> verifica seus resultados.</p>
+<p>O alvo <code>check-lifecycle</code> testa criação e limpeza reais do contexto, transferência
+da lease, aninhamento, falhas, leitores compartilhados e descarte sem publicação.
+Liga ao archive estático da libgomp selecionada e usa os cabeçalhos privados em
+<code>gcc-src-tm/libgomp/</code>. Esse alvo cobre o ciclo de vida; registro/acesso STM
+e commit têm testes específicos no modo funcional:</p>
+<pre><code class="language-sh">make -C transaction_test -B check-lifecycle
+# Para outro build:
+make -C transaction_test -B check-lifecycle GCC_BUILD=/caminho/absoluto/do/build
+</code></pre>
+<p>Execute Python sem <code>-O</code>/<code>-OO</code> e sem <code>PYTHONOPTIMIZE</code>: o verificador depende de
+asserções e recusa sua desativação. Esse teste verifica retornos, preservação
+de dados, logs e visibilidade dos símbolos, sem executar transações reais.</p>
+<h3 id="modo-funcional-provas-e-lto">Modo funcional, provas e LTO</h3>
+<p>Os alvos especializados selecionam verificadores distintos; <code>check</code> sozinho não executa toda a matriz de certificação. Exemplos de seleção:</p>
+<pre><code class="language-sh">make -C transaction_test check-internos
+make -C transaction_test check-abi-v1
+make -C transaction_test check-leituras check-escritas check-chamadas
+make -C transaction_test check-integracao
+make -C transaction_test check-grafo-atual
+make -C transaction_test check-grafo-lto
+make -C transaction_test check-contraprovas-lto
+</code></pre>
+<p><code>check-internos</code> testa serviços privados em corpos preparados manualmente. <code>check-abi-v1</code> testa a ponte exportada; leituras/escritas/chamadas e integração exercitam a geração STM pertinente. Os alvos de grafo e contraprovas verificam a atualidade da evidência e as recusas integradas. Cada verificador delimita sua própria matriz: esses comandos não significam cobertura de toda combinação possível. As matrizes maiores podem ter custo elevado; selecione-as conforme a camada alterada.</p>
+<h3 id="carga-parametrizada-de-leituras-e-escritas">Carga parametrizada de leituras e escritas</h3>
+<pre><code class="language-sh">make -C transaction_test check-carga
+make -C transaction_test check-carga CARGA_THREADS=8 CARGA_REPETICOES=10000
+transaction_test/.build/transaction_carga 4 1:9 1000
+</code></pre>
+<p>O executável recebe três parâmetros: número de threads, relação
+<strong>escritas:leituras</strong> e repetições <strong>por thread</strong>. O Makefile executa 1:9, 1:1 e
+9:1, por padrão com 4 threads e 1.000 transações por thread, também incluídas em
+<code>make check</code>. O teste verifica contagens, valor final e consistência do objeto;
+o verificador confere ainda registros/liberações da hash. Logs em
+<code>transaction_test/.build/transaction_carga-*.log</code>.</p>
+<p>Uma repetição corresponde a uma transação de leitura ou de escrita
+(read-modify-write). Para N repetições e pesos W:R, cada thread executa
+floor(N*W/(W+R)) escritas. Os pesos e sua soma devem caber em uint32_t, e a soma
+deve ser positiva. Threads/repetições devem ser positivas, e o total de
+transações deve caber em unsigned long long. Falha se o ambiente limitar a
+equipe abaixo do número solicitado. Nesse exemplo em modo de rastreamento, um
+critical externo à diretiva protege os valores, incluindo registro e liberação. Isso
+exercita a infraestrutura atual, sem comprovar isolamento transacional.</p>
+<h3 id="criacao-e-destruicao-da-tabela-hash">Criação e destruição da tabela hash</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-create-destroy
+</code></pre>
+<p>O teste usa os fontes reais e headers privados do build Linux x86_64, ligado ao
+archive local, para verificar argumentos inválidos, overflow, capacidades
+1/3/1024, mutexes utilizáveis e preservação integral em BUSY. Uma entrada retida
+é preparada internamente para isolar esse teste do caminho de aquisição.
+Saída em <code>transaction_test/.build/hash_create_destroy.log</code>; aceita <code>GCC_BUILD</code>
+como os outros alvos. Não comprova quiescência, concorrência ou STM funcional.
+Os printf/fflush de depuração foram mantidos fora dos mutexes dos buckets.</p>
+<h3 id="aquisicao-e-consulta-de-entradas">Aquisição e consulta de entradas</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-acquire
+</code></pre>
+<p>O teste interno verifica inserção/reutilização, consulta sem inserção, tamanho
+incompatível, nulos, overflow por injeção controlada, colisões e concorrência com
+quatro threads. Verifica também liberação parcial/final e destruição de metadados
+fora do lock. A mistura nativa é exercitada com endereços numéricos consecutivos
+e alinhados, capacidades arbitrárias e bits superiores; isso não é execução
+nativa da variante de outra largura. Saída em <code>.build/hash_acquire.log</code> dentro
+de <code>transaction_test</code>; aceita <code>GCC_BUILD</code>. A ponte usa referências reais e verifica
+os retornos, preservando os printf fora dos mutexes. Não há STM funcional.</p>
+<h3 id="consultas-e-visita-de-metadados">Consultas e visita de metadados</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-entry
+</code></pre>
+<p>Endereço e tamanho são imutáveis e consultados sem lock enquanto o chamador
+mantém uma referência. A visita executa o callback uma vez sob o mutex do bucket,
+preservando a referência. O teste verifica os campos, instalação/substituição de
+metadados, argumento nulo, destruição final, visitas concorrentes com quatro
+threads e progresso em outro bucket. Usa o build privado Linux x86_64 e admite
+GCC_BUILD. Callbacks não fazem E/S, espera ou reentrada; printf/fflush da primitiva
+ficam fora do lock. Log em <code>transaction_test/.build/hash_entry.log</code>, com limite
+de 60 segundos. Não comprova STM funcional.</p>
+<h3 id="contagem-consistente-de-entradas">Contagem consistente de entradas</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-count
+</code></pre>
+<p>Count adquire todos os mutexes em ordem crescente, conta entradas (não
+referências), satura em SIZE_MAX e libera em ordem inversa. O teste cobre tabela
+vazia, referências repetidas, colisões, capacidades 1/3/1024, saturação por
+injeção interna restaurada e contagem concorrente com quatro threads. Verifica
+também zero durante destruição de metadados ainda em andamento, sem chamar
+destroy nesse intervalo: zero não autoriza destruição nem comprova quiescência.
+Usa configuração privada Linux x86_64, aceita GCC_BUILD e grava
+<code>transaction_test/.build/hash_count.log</code>, com limite de 60 segundos.
+Printf/fflush ficam fora dos locks; não chamar count de callbacks de visita ou
+destrutores, nem com mutex de bucket já adquirido.</p>
+<h3 id="diagnosticos-sem-inversao-de-locks">Diagnósticos sem inversão de locks</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-diagnostics
+</code></pre>
+<p>O teste interno Linux x86_64 mantém stdout ou stderr bloqueado enquanto outra
+thread inicializa a ponte ou recebe falha de alocação injetada. Verifica que
+nenhum log/diagnóstico fatal retém o lock global ou o mutex do bucket, mantendo
+os formatos printf existentes. Quatro casos isolados: inicialização, OOM de
+entrada, tabela e buckets. OOM continua fatal (saída 1); cada caso tem limite
+de 10 segundos. Logs em <code>transaction_test/.build/hash_diagnostics-*.log</code>
+(relativos à raiz); aceita GCC_BUILD. Interposição restrita ao teste, sem hooks
+ou ABI novos. Em concorrência, o log create pode sair depois de operações que
+já observaram a tabela publicada. A finalização agora usa o controle de admissão e participações descrito abaixo;
+tabelas independentes continuam exigindo quiescência externa.</p>
+<h3 id="admissao-e-encerramento-da-tabela-global">Admissão e encerramento da tabela global</h3>
+<pre><code class="language-sh">make -C transaction_test -B check-hash-owner
+</code></pre>
+<p>O proprietário usa OPEN -&gt; CLOSING -&gt; CLOSED. O contexto externo retém uma
+participação até concluir toda a limpeza; aninhamentos reutilizam-na. Durante
+CLOSING novos usuários são recusados, mas os existentes podem terminar.
+<code>newtm_hash_owner_close</code>, interface interna oculta, é não bloqueante quanto à
+drenagem: retorna BUSY com usuários/coordenador/entradas residuais e pode ser
+repetida após conclusão/join. Um único coordenador destrói a tabela drenada;
+CLOSED não reinicializa e chamadas repetidas não destroem duas vezes.
+Consumidores internos diretos da tabela global devem manter uma lease por todo
+o intervalo de uso e referências; não podem destruir a tabela emprestada.</p>
+<p>O finalizador automático faz uma tentativa: se ocupado, conserva a tabela e o
+controle para recuperação pelo processo, sem esperar ou forçar limpeza. O mutex
+de admissão sobrevive à tabela para rejeitar chamadas tardias. Isso não garante
+segurança de dlclose: impedir execução atual/futura da biblioteca continua sendo
+responsabilidade externa. Não há nova ABI pública GOMP ou semântica STM.</p>
+<p>O teste Linux x86_64 cobre onze casos em processos separados, com limite de
+15 segundos: sem uso, aninhamento, coordenadores concorrentes, limpeza e log de
+criação pendentes, entradas residuais, corrida de admissão, erros/overflow,
+chamada tardia e finalização com usuário ativo. Logs em
+<code>transaction_test/.build/hash_owner-*.log</code> (relativos à raiz); aceita GCC_BUILD.</p>
+<h3 id="suites-dejagnu-do-compilador-e-da-libgomp">Suítes DejaGNU do compilador e da libgomp</h3>
+<p>A rodada de aceitação de 2026-11-10 registrou <strong>629 PASS</strong> nas seleções
+transaction/critical de C/C++ e libgomp. Veja o
+<a href="../gcc-src-tm/OPENMP_TRANSACTION_DEJAGNU.md">relatório e runner reproduzível</a>,
+incluindo seleção de libgomp.spec para o driver não instalado.</p>
+<p>Com DejaGNU/Expect/Tcl instalados e as variáveis <code>GCC_TM_*</code> acima definidas:</p>
+<pre><code class="language-sh">export LD_LIBRARY_PATH=&quot;$GCC_TM_GOMP/.libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}&quot;
+export OMP_NUM_THREADS=4
+export OMP_DYNAMIC=FALSE
+
+make -C &quot;$GCC_TM_BUILD/gcc&quot; check-gcc \
+  TESTSUITEDIR=testsuite-tm-c RUNTESTFLAGS='gomp.exp=transaction-*'
+make -C &quot;$GCC_TM_BUILD/gcc&quot; check-g++ \
+  TESTSUITEDIR=testsuite-tm-cxx RUNTESTFLAGS='gomp.exp=transaction-*'
+make -C &quot;$GCC_TM_GOMP&quot; check \
+  RUNTESTFLAGS='c.exp=transaction-*.c c++.exp=transaction-*.c'
+</code></pre>
+<p>É essencial selecionar a libgomp local também na execução: passar apenas
+<code>GCC_UNDER_TEST</code>/<code>GXX_UNDER_TEST</code> como variáveis make não bastou na auditoria.
+Confira os comandos efetivos em <code>.log</code> e os resultados em:</p>
+<ul>
+<li><code>gcc-build/gcc/testsuite-tm-c/gcc/gcc.sum</code> e <code>gcc.log</code>;</li>
+<li><code>gcc-build/gcc/testsuite-tm-cxx/g++/g++.sum</code> e <code>g++.log</code>;</li>
+<li><code>gcc-build/&lt;alvo&gt;/libgomp/testsuite/libgomp.sum</code> e <code>libgomp.log</code>.</li>
+</ul>
+<p>Para verificar regressões em <code>critical</code>, repita os três comandos separadamente,
+substituindo <code>transaction-*</code> por <code>critical-*</code> e usando novos <code>TESTSUITEDIR</code>, por
+exemplo <code>testsuite-critical-c</code> e <code>testsuite-critical-cxx</code>. Preserve os <code>.sum</code> e
+<code>.log</code> da libgomp antes de repetir, pois a chamada seguinte os sobrescreve.
+Não repita o mesmo driver <code>.exp</code> com filtros diferentes numa única chamada:
+um filtro pode substituir o outro.</p>
+<p>Procure <code>FAIL</code>, <code>XPASS</code>, <code>UNRESOLVED</code> e erros de infraestrutura; confira também
+se houve testes executados. A auditoria registra resultados históricos de
+subconjuntos, não aprovação da suíte completa nem evidência de STM funcional.
+Para ampliar a cobertura, <code>make -C gcc-build -k check</code> executa as suítes dos
+componentes configurados e pode demorar bastante.</p>
+<h3 id="checkpoint-da-base-atual">Checkpoint da base atual</h3>
+<p>Após reconstruir a libgomp, execute no ambiente do build:</p>
+<pre><code class="language-sh">make -C transaction_test check-checkpoint-contexto CFLAGS='-O2 -Wall -Werror'
+</code></pre>
+<p>O checkpoint <code>contexto_pronto_para_registro</code> reúne hash, owner, criação/limpeza de
+contexto e rastreamento. Logs e relatório JSON ficam em
+<code>transaction_test/.build/checkpoint_contexto_pronto_para_registro/</code>.
+O <a href="../transaction_test/checkpoint_contexto_pronto_para_registro.py">cabeçalho do teste</a>
+delimita sua cobertura; aprovação não certifica isolamento ou STM funcional.</p>
+<p>A etapa 2 de geração de código materializa
+<a href="../gcc-src-tm/OPENMP_TRANSACTION_DESCRIPTORS.md">descritores internos de identidade</a>
+com objeto lógico, extensão, deslocamento, kind e verificação de limites sem
+wrap. <code>make -C transaction_test check-descritores</code> valida os campos gerados.
+A ponte padrão continua de rastreamento; ABI executável, clones e instrumentação
+STM estão implementados no modo funcional opcional, dentro do domínio aceito
+no <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final</a>.</p>
+<h2 id="validacao-dos-exemplos-desta-documentacao">Validação dos exemplos desta documentação</h2>
+<p>Os programas completos dos capítulos de exemplos e de serviços podem ser copiados para arquivos <code>.c</code> fora de <code>docs/</code>. Use as variáveis <code>GCC_TM_*</code> definidas acima:</p>
+<pre><code class="language-sh">&quot;$GCC_TM_CC&quot; -B&quot;$GCC_TM_BUILD/gcc/&quot; -B&quot;$GCC_TM_GOMP/&quot; \
+  -O2 -fopenmp -fopenmp-transaction-stm exemplo.c \
+  -L&quot;$GCC_TM_GOMP/.libs&quot; -Wl,-rpath,&quot;$GCC_TM_GOMP/.libs&quot; -o exemplo
+./exemplo
+</code></pre>
+<p>Para o exemplo manual da ABI, substitua as opções OpenMP por <code>-I"$GCC_TM_ROOT/gcc-src-tm/include"</code> e acrescente <code>-lgomp -pthread</code> depois do fonte. O controlador já está escrito explicitamente nesse programa.</p>
+<p>A aceitação de 2026-11-11 é delimitada no <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final</a>: 93 negativos/45 controles na matriz de diagnóstico e 629 PASS em seis seleções DejaGNU, além das regressões transitivas descritas no parecer. Isso não equivale a um bootstrap completo ou a uma nova execução dessas matrizes a cada edição documental. Artefatos de teste ficam em <code>transaction_test/.build/</code> e não substituem os fontes e contratos versionados.</p>
+<h3 id="conferencia-desta-edicao-documental">Conferência desta edição documental</h3>
+<p>Em 2026-11-11, os quatro programas C completos apresentados nesta documentação (depósito, transferência, mini carga e controlador manual da ABI) foram extraídos dos blocos de código, compilados com o build local em <code>-O0</code> e <code>-O2</code> e executados: oito execuções aprovadas. Os destinos dos links locais do README e das páginas também foram conferidos. Logs e relatório da conferência ficam em <code>transaction_test/.build/docs-validation/</code>; são artefatos locais, não requisito para leitura da documentação. Essa conferência não repetiu as suítes completas de aceitação.</p><h2 id="exemplos-quatro-versoes">Exemplos em quatro versões</h2><p>Consulte <a href="../examples/index.html">examples/</a>. Para compilar: <code>make -C examples</code>. Para comparar com a referência sequencial: <code>make -C examples check</code>. Cada subdiretório também possui Makefile e alvo check. GNU TM requer a libitm construída na árvore local.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="05-gcc-changes.html">← Anterior</a> <a rel="next" href="07-glossary.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

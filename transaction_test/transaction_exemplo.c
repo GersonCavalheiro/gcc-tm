@@ -44,10 +44,6 @@ main (void)
 	  posicao_local = i;
 	}
 
-    /* transaction ainda nao oferece isolamento.  O critical externo garante
-       a sincronizacao deste exemplo na etapa atual de rastreamento.  */
-    #pragma omp critical (transaction_exemplo_resultado)
-    {
       #pragma omp transaction (maior, posicao, maior_local, posicao_local)
       {
 	if (maior_local > maior
@@ -57,7 +53,6 @@ main (void)
 	    posicao = posicao_local;
 	  }
       }
-    }
   }
 
   if (maior != esperado || posicao != posicao_esperada)

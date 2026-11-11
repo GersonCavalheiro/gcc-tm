@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Helper functions — GCC-TM</title></head><body><main><p><a href="../index.html">Example index</a> · <a href="../../docs/index.html">Documentation</a></p><h1>Helper functions</h1><p>Call a direct helper defined in the same translation unit. The internal version explicitly prepares the helper and propagates its status.</p><ul><li><a href="sequential.c">sequential.c</a></li><li><a href="internal.c">internal.c</a></li><li><a href="directive.c">directive.c</a></li><li><a href="gnu_tm.c">gnu_tm.c</a></li></ul><h2>Build and check</h2><pre>make
+make check
+.build/sequential
+.build/internal
+.build/directive
+.build/gnu_tm</pre><p>All four programs check their result explicitly. The checker compares their RESULT lines against the sequential reference and retains complete logs in .build/. The sequential version does not execute OpenMP. Concurrent totals do not depend on scheduling or on the actual team size. No particular conflict count is required.</p><p>The internal API requires checking each status and propagating failure. The directive requires -fopenmp -fopenmp-transaction-stm. GNU TM uses __transaction_atomic and libitm, a separate implementation. These are correctness examples, not benchmarks.</p></main></body></html>

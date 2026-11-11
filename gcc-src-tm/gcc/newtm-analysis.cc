@@ -26,6 +26,7 @@ static GTY(()) hash_map<tree, tree> *newtm_types;
 static GTY(()) hash_map<tree, tree> *newtm_initializers;
 static GTY(()) hash_map<tree, tree> *newtm_regions;
 static GTY(()) hash_map<tree, tree> *newtm_markers;
+static GTY(()) hash_map<tree, tree> *newtm_cpp_read_sites;
 
 static void ensure_sources ()
 {
@@ -37,7 +38,37 @@ static void ensure_sources ()
   newtm_markers = hash_map<tree, tree>::create_ggc ();
 }
 
-tree newtm_note_source_read (tree expr, location_t loc)
+/* cp-tree.h REF_PARENTHESIZED_P uses language flag 2 on these nodes.
+   Unlike a representation view, this is semantic decltype bookkeeping. */
+static bool cpp_read_parentheses (tree t)
+{
+  return strstr (lang_hooks.name, "C++")
+    && (TREE_CODE (t) == VIEW_CONVERT_EXPR || TREE_CODE (t) == PAREN_EXPR)
+    && TREE_LANG_FLAG_2 (t)
+    && TREE_TYPE (t) == TREE_TYPE (TREE_OPERAND (t, 0));
+}
+static tree strip_read_wrappers (tree t)
+{
+  tree before;
+  do
+    {
+      before = t;
+      STRIP_ANY_LOCATION_WRAPPER (t);
+      if (cpp_read_parentheses (t)) t = TREE_OPERAND (t, 0);
+      STRIP_NOPS (t);
+    }
+  while (t != before);
+  return t;
+}
+
+static tree strip_read_locations (tree *tp, int *walk, void *)
+{
+  *tp = strip_read_wrappers (*tp);
+  if (DECL_P (*tp) || TYPE_P (*tp)) *walk = 0;
+  return NULL_TREE;
+}
+
+tree newtm_note_source_read (tree expr, location_t loc, bool cpp_site)
 {
   if (TREE_SIDE_EFFECTS (expr)) return NULL_TREE;
   enum tree_code code = TREE_CODE (expr);
@@ -46,9 +77,28 @@ tree newtm_note_source_read (tree expr, location_t loc)
     return NULL_TREE;
   ensure_sources ();
   if (newtm_sources->get (current_function_decl)) return NULL_TREE;
+  tree witness = unshare_expr (expr);
+  if (cpp_site)
+    {
+      /* mark_use revisits one lvalue several times during C++ conversion.
+         Deduplicate only identical references at the same raw source site
+         and in the same function. Separate macro tokens/reads retain sites. */
+      if (EXPR_P (expr) && EXPR_HAS_LOCATION (expr)) loc = EXPR_LOCATION (expr);
+      walk_tree (&witness, strip_read_locations, NULL, NULL);
+      if (loc != UNKNOWN_LOCATION && loc != BUILTINS_LOCATION)
+        {
+          if (!newtm_cpp_read_sites) newtm_cpp_read_sites = hash_map<tree, tree>::create_ggc ();
+          tree site = build_int_cstu (long_long_unsigned_type_node, loc);
+          tree *old = newtm_cpp_read_sites->get (site);
+          for (tree p = old ? *old : NULL_TREE; p; p = TREE_CHAIN (p))
+            if (TREE_PURPOSE (p) == current_function_decl
+                && operand_equal_p (TREE_VALUE (p), witness, 0)) return NULL_TREE;
+          newtm_cpp_read_sites->put (site, tree_cons (current_function_decl, witness, old ? *old : NULL_TREE));
+        }
+    }
   tree marker = build0 (DEBUG_BEGIN_STMT, void_type_node);
   SET_EXPR_LOCATION (marker, loc);
-  newtm_markers->put (marker, unshare_expr (expr));
+  newtm_markers->put (marker, witness);
   return marker;
 }
 
@@ -57,6 +107,13 @@ tree newtm_source_read (tree marker)
 {
   tree *read = newtm_markers ? newtm_markers->get (marker) : NULL;
   return read ? *read : NULL_TREE;
+}
+
+void
+newtm_bind_source_marker (tree marker, tree expression)
+{
+  ensure_sources ();
+  newtm_markers->put (marker, expression);
 }
 
 static tree source_body (tree fn)
@@ -211,7 +268,7 @@ static identity add_offset (identity id, tree offset)
 static identity pointer_identity (tree t, state &s, unsigned depth)
 {
   if (!t || depth > 64) return identity ();
-  STRIP_NOPS (t);
+  t = strip_read_wrappers (t);
   switch (TREE_CODE (t))
     {
     case ADDR_EXPR: return object_identity (TREE_OPERAND (t, 0), s, depth + 1);
@@ -231,6 +288,7 @@ static identity pointer_identity (tree t, state &s, unsigned depth)
     case PREDECREMENT_EXPR: case POSTDECREMENT_EXPR:
       return lookup (s.pointers, t);
     case SAVE_EXPR: return pointer_identity (TREE_OPERAND (t, 0), s, depth + 1);
+    case COMPOUND_EXPR: return pointer_identity (TREE_OPERAND (t, 1), s, depth + 1);
     default: return identity ();
     }
 }
@@ -238,7 +296,7 @@ static identity pointer_identity (tree t, state &s, unsigned depth)
 static identity object_identity (tree t, state &s, unsigned depth)
 {
   if (!t || depth > 64) return identity ();
-  STRIP_NOPS (t);
+  t = strip_read_wrappers (t);
   switch (TREE_CODE (t))
     {
     case VAR_DECL: case PARM_DECL:
@@ -679,7 +737,8 @@ static void examine (tree t, state &s, bool write)
       return;
     }
   if (code == NOP_EXPR || code == CONVERT_EXPR || code == NON_LVALUE_EXPR
-      || (code == VIEW_CONVERT_EXPR && location_wrapper_p (t)))
+      || (code == VIEW_CONVERT_EXPR && location_wrapper_p (t))
+      || cpp_read_parentheses (t))
     {
       tree operand = TREE_OPERAND (t, 0);
       if (s.active && TREE_TYPE (operand) && TREE_TYPE (t)

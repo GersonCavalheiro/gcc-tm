@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Diretiva e domínio suportado | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="01-transactional-model.html">← Anterior</a> <a rel="next" href="03-internal-services.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="diretiva-e-dominio-suportado">Diretiva e domínio suportado</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#selecao-do-modo">Seleção do modo</a></li>
+<li><a href="#regras-para-escrever-o-corpo">Regras para escrever o corpo</a></li>
+<li><a href="#verificacao-e-recusa">Verificação e recusa</a></li>
+</ul>
+</div>
+
+<p><a href="index.html">Índice</a></p>
+<p>A forma básica é <code>#pragma omp transaction (objeto1, objeto2)</code> seguida de um bloco estruturado. A lista identifica objetos registrados; não é uma lista de cópias privadas OpenMP. O compilador preserva identidades e extensões necessárias à instrumentação.</p>
+<h2 id="selecao-do-modo">Seleção do modo</h2>
+<table>
+<thead>
+<tr>
+<th>Opções</th>
+<th>Comportamento</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-fopenmp</code></td>
+<td>Rastreamento com <code>GOMP_transaction_begin/register/end</code>; sem isolamento, rollback ou retry STM</td>
+</tr>
+<tr>
+<td><code>-fopenmp -fopenmp-transaction-stm</code></td>
+<td>Transformação funcional experimental e ABI <code>GOMP_transaction_stm_v1_*</code></td>
+</tr>
+<tr>
+<td><code>-ftransaction-debug</code></td>
+<td>Diagnósticos adicionais do compilador; não seleciona STM</td>
+</tr>
+</tbody>
+</table>
+<p>Os logs do runtime são independentes da opção de diagnóstico. Compilador e libgomp devem ser os desta árvore; uma biblioteca do sistema pode não conter a ABI necessária.</p>
+<h2 id="regras-para-escrever-o-corpo">Regras para escrever o corpo</h2>
+<p>Registre todos os objetos preexistentes acessados, inclusive os alcançados por funções preparadas. Objetos automáticos criados dentro da tentativa podem usar o tratamento privado que o compilador comprova. Não deduza suporte a uma construção só porque outro programa parecido foi aceito.</p>
+<p>Funções diretas com definição disponível na mesma unidade podem ser preparadas automaticamente, inclusive definições posteriores e instanciações elegíveis. Chamadas indiretas e externas sem preparação são recusadas. A existência de um clone não autoriza uma chamada comum nem elimina a verificação da cadeia transitiva.</p>
+<p>Mantenha o corpo no subconjunto conservador de tipos, acessos, capturas, agregados, frames e exceções verificado pelo compilador. Não insira <code>printf</code>, syscalls, sincronização do programa, chamadas de alocação arbitrárias ou exceções que escapem do subconjunto. Os exemplos usam inteiros para tornar explícitos registro e resultado; dinheiro é representado em centavos.</p>
+<p>O domínio aceito é host Linux x86_64, C e C++. Os fixtures de agregados compartilhados pertinentes permanecem restritos a C. Não há declaração de suporte geral a offload, todas as classes C++, ponteiros arbitrários ou SSA arbitrariamente otimizado.</p>
+<h2 id="verificacao-e-recusa">Verificação e recusa</h2>
+<p>A aceitação depende de V01–V08 e das provas reconstruídas nas fases suportadas. Identidade/faixa, armazenamento PRIVATE, controle, ownership, status, falha e atualidade da evidência são obrigações distintas. O verificador inspeciona o grafo atual; evidência histórica retirada não pode ser reutilizada. Falhas obrigatórias devem recusar também com checking desativado.</p>
+<p>LTO transporta contratos declarativos, sem transportar aprovação pronta ou ponteiros GIMPLE/SSA. O formato desta árvore é 16.1; objetos com o formato anterior 16.0 não são compatíveis. Há reconstrução nas janelas documentadas de WPA/LTRANS, com preservação das unidades preparadas. A versão do formato LTO é independente da versão dos símbolos da ABI.</p>
+<p>Para a redação normativa e a cobertura precisa, consulte os <a href="../gcc-src-tm/OPENMP_TRANSACTION_DECISIONS.md">contratos/decisões</a> e o <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final</a>. Uma recusa não deve ser contornada removendo registro, verificação de status ou instrumentação.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="01-transactional-model.html">← Anterior</a> <a rel="next" href="03-internal-services.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

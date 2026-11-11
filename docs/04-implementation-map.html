@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Arquivos construídos e primitivas | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="examples/02-workload.html">← Anterior</a> <a rel="next" href="05-gcc-changes.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="arquivos-construidos-e-primitivas">Arquivos construídos e primitivas</h1><div class="toc"><span class="toctitle">Nesta página</span><ul>
+<li><a href="#compilador">Compilador</a></li>
+<li><a href="#runtime-e-contrato-compartilhado">Runtime e contrato compartilhado</a></li>
+<li><a href="#fluxo-da-implementacao">Fluxo da implementação</a></li>
+<li><a href="#exemplos-e-testes">Exemplos e testes</a></li>
+</ul>
+</div>
+
+<p><a href="index.html">Índice</a> · <a href="05-gcc-changes.html">Integração no GCC</a></p>
+<p>Este mapa identifica os módulos específicos construídos para o subsistema. Não é uma listagem de todos os arquivos modificados no checkout. Os caminhos abaixo são relativos a <code>gcc-src-tm/</code>; pares <code>.cc/.h</code> indicam implementação e declarações.</p>
+<h2 id="compilador">Compilador</h2>
+<table>
+<thead>
+<tr>
+<th>Arquivos em <code>gcc/</code></th>
+<th>Função no pipeline</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>newtm-analysis.cc</code></td>
+<td>Preparação/análise do corpo transacional</td>
+</tr>
+<tr>
+<td><code>newtm-occurrence.cc/.h</code></td>
+<td>Ocorrências e proveniência dos objetos</td>
+</tr>
+<tr>
+<td><code>newtm-descriptor.cc/.h</code></td>
+<td>Descritores de identidade e faixas</td>
+</tr>
+<tr>
+<td><code>newtm-abi.cc/.h</code></td>
+<td>Construção da interface e operações ABI</td>
+</tr>
+<tr>
+<td><code>newtm-access.cc/.h</code></td>
+<td>Instrumentação e verificação de acessos</td>
+</tr>
+<tr>
+<td><code>newtm-clone.cc/.h</code></td>
+<td>Preparação de funções chamadas e clones</td>
+</tr>
+<tr>
+<td><code>newtm-obligation.cc/.h</code></td>
+<td>Obrigações verificáveis da transformação</td>
+</tr>
+<tr>
+<td><code>newtm-flow.cc/.h</code></td>
+<td>Fluxo e relações de controle</td>
+</tr>
+<tr>
+<td><code>newtm-guard.cc/.h</code></td>
+<td>Guardas exigidas para os caminhos</td>
+</tr>
+<tr>
+<td><code>newtm-status.cc/.h</code></td>
+<td>Uso e propagação dos status</td>
+</tr>
+<tr>
+<td><code>newtm-lifetime.cc/.h</code></td>
+<td>Vida útil e validade do armazenamento</td>
+</tr>
+<tr>
+<td><code>newtm-failure.cc/.h</code></td>
+<td>Caminhos de falha e saída</td>
+</tr>
+<tr>
+<td><code>newtm-owner.cc/.h</code></td>
+<td>Propriedade e consumidores autorizados</td>
+</tr>
+<tr>
+<td><code>newtm-memory.cc/.h</code></td>
+<td>Evidências e relações de memória</td>
+</tr>
+<tr>
+<td><code>newtm-current.cc/.h</code></td>
+<td>Atualidade das provas perante o grafo corrente</td>
+</tr>
+<tr>
+<td><code>newtm-lto.cc/.h</code></td>
+<td>Contratos e reconstrução entre fases LTO</td>
+</tr>
+</tbody>
+</table>
+<p>Os módulos colaboram; a existência de uma estrutura em um deles não constitui aprovação independente do restante. O verificador deve demonstrar as obrigações sobre o código atual depois das transformações pertinentes.</p>
+<h2 id="runtime-e-contrato-compartilhado">Runtime e contrato compartilhado</h2>
+<table>
+<thead>
+<tr>
+<th>Arquivo</th>
+<th>Conteúdo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../gcc-src-tm/include/newtm-abi.h">include/newtm-abi.h</a></td>
+<td>Tipos, status, descritores e serviços ABI v1</td>
+</tr>
+<tr>
+<td><a href="../gcc-src-tm/libgomp/newtm-hash.h">libgomp/newtm-hash.h</a> e <a href="../gcc-src-tm/libgomp/newtm-hash.c">newtm-hash.c</a></td>
+<td>Hash de identidades, referências, metadados e proprietário global</td>
+</tr>
+<tr>
+<td><a href="../gcc-src-tm/libgomp/newtm-transaction.h">libgomp/newtm-transaction.h</a> e <a href="../gcc-src-tm/libgomp/newtm-transaction.c">newtm-transaction.c</a></td>
+<td>Estados, ciclo de vida, reservas, buffers, leitura/escrita, commit, limpeza e retry</td>
+</tr>
+<tr>
+<td><a href="../gcc-src-tm/libgomp/newtm-context.h">libgomp/newtm-context.h</a></td>
+<td>Estruturas privadas e contrato do controlador/política</td>
+</tr>
+<tr>
+<td><a href="../gcc-src-tm/libgomp/newtm-abi.c">libgomp/newtm-abi.c</a></td>
+<td>Adaptação da ABI exportada às primitivas internas</td>
+</tr>
+</tbody>
+</table>
+<p>Não existe um <code>newtm-context.c</code> separado: a implementação de contexto está em <code>newtm-transaction.c</code>. O catálogo de primitivas e suas obrigações está em <a href="03-internal-services.html">serviços internos</a>.</p>
+<h2 id="fluxo-da-implementacao">Fluxo da implementação</h2>
+<pre><code class="language-text">pragma → parser/árvore → ocorrências e descritores → preparação de chamadas
+       → lowering/instrumentação → controlador e ABI → libgomp
+       → registro → reservas → valores privados → validação/publicação ou descarte
+</code></pre>
+<p>Em paralelo, as obrigações são reconstruídas e verificadas nas janelas pertinentes. No LTO, contratos declarativos atravessam streaming e particionamento; provas dependentes de GIMPLE/SSA são refeitas.</p>
+<h2 id="exemplos-e-testes">Exemplos e testes</h2>
+<p><a href="../transaction_test/">transaction_test/</a> contém o Makefile, exemplos de rastreamento, testes privados de hash/ciclo, verificadores e plugins de mutação para contraprovas. As famílias <code>transaction-*</code> aparecem também em <code>gcc/testsuite/c-c++-common/gomp/</code>, <code>gcc/testsuite/g++.dg/gomp/</code> e <code>libgomp/testsuite/</code>.</p>
+<p>Os testes de mutação precisam mostrar baseline aceito, alteração aplicada e recusa integrada pela regra esperada. A simples falha de um plugin ou uma mensagem isolada não demonstra a proteção. As evidências específicas e seus limites estão no <a href="../gcc-src-tm/OPENMP_TRANSACTION_ACCEPTANCE_FINAL.md">parecer final</a>.</p><p><a href="../examples/09-compute-transactions/index.html">Compute-heavy transactions</a>: early-write contention hypothesis with four implementations and an exploratory timing script.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="examples/02-workload.html">← Anterior</a> <a rel="next" href="05-gcc-changes.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>

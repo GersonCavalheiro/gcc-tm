@@ -1,3 +1,366 @@
+## Bloco 8 — reconstrução em LTO
+
+`make -C transaction_test check-grafo-lto` reexecuta as provas sobre os corpos
+carregados em WPA/LTRANS, LTO monolítico e incremental. Nenhuma aprovação é
+transportada. A matriz cobre C/C++, O0/O2, checking 0/2, GC, DSO/archive,
+recursão, GNU, EH, parallel, transações aninhadas, múltiplas unidades e partições,
+COMDAT, funções inativas sem aprovação, versão antiga e objetos fat.
+Mutações atingem envelope, mapas, identidade/SSA, layout, cobertura, guardas,
+status, proprietário e canais; restaurar IR não revive aprovação.
+
+O [contrato do bloco 8](../gcc-src-tm/OPENMP_TRANSACTION_LTO_GRAPH.md) explicita
+a preservação temporária da unidade de prova e a restauração das opções de
+otimização depois da reconstrução final. O formato é LTO 16.1: recompilar
+objetos 16.0. Isso preserva a ABI v1 do runtime. É possível executar só uma
+seção com `python3 verificar_grafo_lto.py ../gcc-build positive` (ou negative,
+fixtures, units, format, templates). A aceitação integral continua na 6.6.
+Matriz final: 426 verificações e 122 execuções. Resultados e logs no checkpoint
+de retomada. O controle externo manual da ABI, fora do modo funcional, conserva
+compatibilidade sem receber aprovação de grafo.
+
+## Bloco 7 — certificado atual do grafo
+
+Resultado do novo teste: **543 verificações e 212 execuções aprovadas**.
+
+`make -C transaction_test check-grafo-atual` verifica composição atômica,
+fechamento recursivo compartilhado, dependências zeradas, revogação e novas
+gerações. Mutações alcançam corpos, assinatura, layout, CFG, controlador e
+produtores de outlining; provas isoladas não publicam aprovação. A matriz
+inclui C/C++, O0/O2, checking 0/2, GC, DSO/archive, GNU, EH e parallel.
+A autoridade é revogada antes de IPA e não é herdada por LTO. Contrato e
+limites no [relatório do bloco 7](../gcc-src-tm/OPENMP_TRANSACTION_CURRENT_GRAPH.md).
+O bloco 8 acrescenta reconstrução LTO independente. Resta a aceitação integral da 6.6. Resultados no checkpoint.
+
+## Bloco 6 — cobertura residual no CFG remapeado
+
+`make -C transaction_test check-cobertura` fecha a classificação de cada
+leitura, escrita e chamada nos corpos preparados e nos subgrafos proprietários
+atuais. A memória local exige identidade e intervalo; PRIVATE exige operação
+atual comprovada; canais exigem direção e extensão; chamadas exigem assinatura
+e identidade de origem, consumida uma única vez. O lowering GNU possui
+proveniência própria de declarações de frame/CFA, sem liberar por nome ou tipo.
+
+A matriz injeta acessos globais/aliases, memória em endereços, condições,
+construtores e retornos, efeitos antes da inicialização do slot, volatile com
+flags retirados, builtins e chamadas originais/indiretas/extras, CFA sem produtor,
+asm e duplicação de operações PRIVATE. Cada base precisa passar antes da
+mutação. Positivos incluem escalares, endereços sem leitura e IFNs de overflow
+válidos; executam em C/C++, O0/O2, checking 0/2, DSO/archive, GC e parallel.
+
+Resultado: 695 verificações e 156 execuções. O
+[contrato do bloco 6](../gcc-src-tm/OPENMP_TRANSACTION_CURRENT_COVERAGE.md)
+detalha categorias e limites. O resultado é DEPENDENT com IDENTITY | CHANNELS |
+STATUS | OWNER (15); não publica current_approved. Restam os blocos 7–8 e a 6.6.
+
+## Bloco 5 — propriedade no CFG remapeado
+
+`make -C transaction_test check-proprietario-atual` reconstrói cada protocolo
+proprietário após lowering/outlining: slot, admissão, outermost, auxiliar,
+STATUS/END, causa, limpeza, contador saturado e retry completo somente após
+conflito. As mutações são aplicadas ao CFG atual e verificadas diretamente
+pela rotina de produção. Positivos incluem cópia de contexto, comparação
+invertida e sobrescrita de um resultado morto de FAIL.
+
+A matriz cobre C/C++, O0/O2, checking 0/2, GC forçado, DSO/archive, aninhamento,
+laços, múltiplos controladores, funções GNU e parallel. Recusa bypass, entradas
+no meio do protocolo, retorno antecipado, status falsificado, alias sem
+TREE_ADDRESSABLE, vida útil encerrada, contexto consumido e retry parcial.
+O [contrato do bloco 5](../gcc-src-tm/OPENMP_TRANSACTION_CURRENT_OWNER.md)
+explica as fronteiras de vida útil e as dependências CHANNELS | STATUS.
+O componente não publica `current_approved`; cobertura/composição/LTO continuam
+nos blocos 6–8 e a aceitação integral, na 6.6.
+Resultado: 553 verificações e 88 execuções; a base passa antes de cada mutação.
+
+## Bloco 4 — status no CFG remapeado
+
+`make -C transaction_test check-status-atual` verifica sucesso por definição de
+chamada, disponibilidade independente de valor/binding, alternativas PRIVATE
+comprovadas e STATUS final da própria publicação. Falhas precisam conservar
+a causa, passar por FAIL e retornar seu resultado efetivo; não podem circular
+no epílogo ou prosseguir com memória/chamadas normais.
+
+Os testes incluem os checks de BEGIN/auxiliar/END do controlador, inclusive
+após parallel; aliases sem depender de TREE_ADDRESSABLE; seletores globais
+alterados por chamadas; status desconhecidos; e seletores de cleanup GNU.
+Os positivos executam em C/C++, O0/O2, checking 0/2 e DSO/archive, com GC
+forçado. A mutação do cleanup vazio ocorre em O0, onde esse IR está presente.
+
+O [contrato do bloco 4](../gcc-src-tm/OPENMP_TRANSACTION_CURRENT_STATUS.md)
+registra limites, validações e a dependência OWNER. Não há aprovação integral
+atual; o protocolo proprietário remapeado está documentado no bloco 5 acima.
+Resultado: 449 verificações e 100 execuções. Passaram também as regressões
+de grafo, canais, memória, controlador, integração e todas as provas anteriores.
+
+## Bloco 3 — canais no CFG remapeado
+
+`make -C transaction_test check-canais` verifica incoming/result, produtores de
+slots e publicações, buffers tipados, extensão, inicialização, vida útil,
+empréstimos e não sobreposição após ompexp. Inclui a entrada do controlador
+extraído por parallel, cópias equivalentes e aliases legítimos dos dados.
+Mutações com GIMPLE válido precisam ser recusadas pelo verificador de produção.
+
+Resultado: 241 verificações e 44 execuções; C/C++, O0/O2, checking 0/2, GC
+forçado e DSO/archive. O [contrato dos canais](../gcc-src-tm/OPENMP_TRANSACTION_CHANNELS.md)
+explica a reconstrução lexical e os resultados condicionais a STATUS | OWNER.
+Aprovação integral atual e reconstrução da certificação em LTO seguem pendentes.
+Exceções lançadas e capturadas fora da transação preservam o comportamento do
+código C++ comum; exceções dentro dos corpos preparados continuam recusadas.
+
+## Bloco 2 — modelo comum de memória no CFG
+
+`make -C transaction_test check-memoria` testa o modelo atual de identidade,
+instância e armazenamento após ompexp. Inclui tuplas transportadas, slots,
+PRIVATE/REGISTERED/DYNAMIC, aliases, layouts, inicializadores privados, índices,
+conversões, endereços e frames. Pares positivos e cópias equivalentes executam
+com ligação dinâmica/estática, C/C++, O0/O2, checking 0/2 e GC forçado. Subobjetos
+de agregados do programa e frames GNU respeitam o domínio C já admitido.
+
+Os negativos precisam ser recusados pela inspeção de produção; os probes
+mantêm GIMPLE válido. Consultas isoladas também exercitam alias sem flag de
+exposição e armazenamento de outra ativação com origem artificialmente igual.
+O [contrato vigente](../gcc-src-tm/OPENMP_TRANSACTION_MEMORY.md) especifica os
+resultados condicionais e as dependências dos blocos 3–5. Nenhuma dessas provas
+concede aprovação integral atual ou reconstrução LTO. Os relatos parciais abaixo
+foram superados por esse modelo comum.
+
+Resultado da versão concluída: 281 verificações e 32 execuções em
+`check-memoria`; 317 verificações em `check-transitivo`. As regressões de
+controlador, integração, fluxo, guardas, composição, status, vida útil, falhas,
+propriedade, ABI e chamadas também passaram.
+
+## Bloco 2 — operações checadas do deslocamento (histórico)
+
+`check-transitivo` remove a prova de overflow após ompexp, troca projeção ou
+operador, substitui multiplicação checada por operação comum e ignora o cálculo
+com um deslocamento constante. A inspeção deve recusar os casos, mantendo uma
+cópia legítima aceita. C/C++, checking 0/2. O resumo matemático é consumido no
+CFG atual sem consultar descritores retirados. O alcance permanece restrito
+às dependências reconhecidas dos acessos estáticos; o bloco 2 segue incompleto.
+
+## Bloco 2 — acessos STM de origem estática
+
+`check-transitivo` confere origem, tamanho e faixa de READ/WRITE após lowering,
+recusando troca de objeto com guardas coerentes, deslocamento fora do array,
+tamanho/opcode alterados, duplicação e READ introduzido em clone antes sem
+acessos. Pares positivos executam escalar e array com bibliotecas dinâmica e
+estática. Identidades dinâmicas e classificação PRIVATE/DYNAMIC seguem pendentes;
+consultar `gcc-src-tm/OPENMP_TRANSACTION_MEMORY_PROGRESS.md`.
+
+## Bloco 2 — origem estática dos registros
+
+`check-transitivo` troca o objeto registrado por outro inteiro e ajusta suas
+guardas, modifica extensão/kind para valores válidos porém diferentes do
+original, duplica registros e desloca ponteiros. Cópias e autocópias legítimas
+precisam continuar aceitas. A associação é reconstruída no CFG atual; tuplas
+dinâmicas continuam pendentes. O contrato está em
+`gcc-src-tm/OPENMP_TRANSACTION_MEMORY_PROGRESS.md`.
+
+## Bloco 2 — guardas de registro no CFG
+
+`check-transitivo` inclui objeto nulo, extensão zero/máxima e kind inválido em
+REGISTER após ompexp, com C/C++ e checking 0/2. O par positivo usa transação
+aninhada em laço e é executado com bibliotecas dinâmica e estática.
+A reconstrução integral de identidade e armazenamento continua pendente;
+consultar `gcc-src-tm/OPENMP_TRANSACTION_MEMORY_PROGRESS.md`.
+
+## Correspondência semântica das capturas — bloco 1
+
+`check-transitivo` testa trocas de capturas e formais de mesmo tipo, campos
+compartilhados trocados no produtor/consumidor e truncamento de ponteiro após
+remapeamento. O par positivo é executado com bibliotecas dinâmica e estática.
+O contrato e os limites constam em
+`gcc-src-tm/OPENMP_TRANSACTION_REMAP_CORRESPONDENCE.md`.
+A correspondência não concede a prova integral de memória ou a aprovação LTO.
+
+## Correspondência estrutural dos controladores após outlining
+
+`check-transitivo` testa chamada do controlador removida ou duplicada, canais
+incompatíveis, origem de outlining conflitante, parâmetro com proprietário
+alterado e campo desconhecido. A certificação inspeciona os CFGs reais e usa
+as origens registradas no evento de extração. Correspondência semântica entre
+capturas e campos de mesmo tipo e prova profunda de layouts continuam pendentes.
+
+## Contexto emprestado no CFG transformado
+
+`check-transitivo` testa identidade do contexto depois de `ompexp`: ponteiro
+nulo com tipo correto, parâmetro sobrescrito, escrita por alias e cópia válida.
+A análise de ponto fixo usa os operandos e arestas atuais, exclui variáveis
+expostas e exige o mesmo contexto em chamadas preparadas e serviços
+emprestados. Seu alcance atual é o CFG pré-SSA do grafo preparado no frontend;
+não concede certificação integral de memória ou do grafo LTO.
+
+## Chamadas preparadas após lowering
+
+`check-transitivo` altera destinos, cria chamada indireta e modifica o tipo
+argumento de contexto depois de `ompexp`. A inspeção do CFG preparado, integrada
+à certificação, deve recusar cada corpo em C/C++, checking 0/2. Essa validação
+não concede certificação integral ao IR remapeado ou ao grafo LTO.
+
+## Auditoria de chamadas no CFG
+
+`check-transitivo` inclui mutação de uma chamada READ após `ompexp`, recusada
+pela auditoria de produção em C/C++, checking 0/2. A mesma auditoria de tipos
+ABI é executada depois da leitura dos corpos LTO. Ela não substitui as provas
+de identidade, status, armazenamento e cobertura integral ainda pendentes.
+
+## Fronteiras de remapeamento — progresso da 6.5.3
+
+`make check-transitivo` verifica o registro da passagem real por `tree-nested`
+e `omplower` e a propagação da marca aos chamadores, inclusive recursivos.
+A consulta distingue validade histórica de aprovação atual, que permanece falsa.
+A matriz executa também um link LTO real e verifica a ausência dos registros
+históricos no processo LTO. Inspeção após remapeamento, aceitação atual e
+certificação do IR em LTO continuam pendentes.
+
+## Invalidação e revalidação — subetapa 6.5.2
+
+`make check-transitivo` cobre publicação e revogação dos certificados históricos,
+revalidação de invalidação propagada e recusa após alterações de aresta ou
+assinatura; também verifica que falhas não publicam uma revisão. O contrato e
+seus limites constam em `gcc-src-tm/OPENMP_TRANSACTION_INVALIDATION.md`.
+
+## Certificação transitiva — subetapa 6.5.1
+
+`make -C transaction_test check-transitivo` valida a
+[certificação pré-lowering](../gcc-src-tm/OPENMP_TRANSACTION_GRAPH.md): 33
+verificações em C/C++, checking 0/2, com recursão simples/mútua, componentes,
+arestas divergentes, fechamento, invalidação e mutação de dependências. Logs:
+`.build/graph/`. Remapeamento e certificação através de LTO seguem na 6.5.3.
+
+## Composição local — subetapa 6.4.7
+
+`make -C transaction_test check-composicao` valida a
+[composição e os diagnósticos](../gcc-src-tm/OPENMP_TRANSACTION_COMPOSITION.md):
+93 verificações, 16 execuções e 816 cenários sintéticos. Inclui recusa atômica,
+obrigações retiradas, cópias, derivações, dependências, diagnósticos, C/C++,
+checking 0/2, LTO, ligação dinâmica/estática e GC forçado. Logs em
+`.build/composition/`. A certificação transitiva permanece na 6.5.
+
+## Protocolo proprietário — subetapa 6.4.6
+
+`make -C transaction_test check-proprietario` valida a
+[prova do controlador](../gcc-src-tm/OPENMP_TRANSACTION_OWNERSHIP.md):
+77 verificações, 16 execuções e 2356 cenários sintéticos. Cobre
+admissão/outermost, slot exclusivo e estável, auxiliar/STATUS/END, condenação e
+limpeza únicas, saturação do contador, fatal e retry integral. Inclui definição
+fresca do incoming e dependências, escopos/clobbers, escapes, escritas indiretas,
+contexto consumido e ciclos sem readmissão. Mutações negativas passam também
+pelo inspetor completo; os positivos completos são os controladores reais.
+C/C++ O0/O2, LTO, DSO/archive, checking 0/2, GC e imutabilidade de IR/CFG.
+Logs/JSON: `.build/owner/`. Composição segue na 6.4.7; não há certificado novo.
+
+## Falhas e aninhamento — subetapa 6.4.5
+
+`make -C transaction_test check-falhas` valida a
+[prova dos epílogos e do contexto emprestado](../gcc-src-tm/OPENMP_TRANSACTION_FAILURES.md):
+77 verificações, 16 execuções e 1856 cenários sintéticos. Cobre causa substituída
+ou antiga, status desconhecido, retorno efetivo de FAIL, precedência de INVALID,
+guardas permanentes, junções, dois níveis, laços balanceados, ciclos condenados,
+cleanups e contexto alterado/exposto. Inclui positivos e negativos pelo inspetor
+completo, C/C++ O0/O2, LTO, DSO/archive, checking 0/2, GC forçado e imutabilidade
+do IR/CFG/propriedades. Logs/JSON: `.build/failures/`. O protocolo proprietário
+do controlador e a composição seguem nas 6.4.6–6.4.7; não há certificado novo.
+
+## Inicialização, vida útil e publicação — subetapa 6.4.4
+
+`make -C transaction_test check-vida-util` valida a
+[prova dos transportes e saídas](../gcc-src-tm/OPENMP_TRANSACTION_LIFETIME.md):
+126 verificações, 32 execuções e 1708 cenários sintéticos. Cobre campos/operandos
+indefinidos, construtores aninhados/parciais, arrays inteiros, sobreposição,
+clobbers, escopos, aliases, efeitos de chamadas, escapes e publicação parcial.
+Inclui o inspetor completo, C/C++ O0/O2, LTO, DSO/archive, checking 0/2 e GC
+forçado. O teste executável de inconsistência entre valor e binding exige
+INVALID com ambas as saídas preservadas; referências C++ condicionais confirmam
+vida útil e commit. Logs/JSON: `.build/lifetime/`. Provas restantes nas
+6.4.5–6.4.7; não há COBERTA nem certificado novo.
+
+## Status e disponibilidade de saídas — subetapa 6.4.3
+
+`make -C transaction_test check-status` valida a
+[prova por definição de chamada](../gcc-src-tm/OPENMP_TRANSACTION_STATUS.md):
+77 verificações, 16 execuções e 1680 cenários sintéticos. Cobre status reutilizado,
+guarda ausente/invertida/tardia ou da chamada errada, cópias, valor/binding,
+sobrescritas/aliases, chamadas, END, junções, laços, cleanup e produtor PRIVATE
+alternativo. Inclui negativos pelo inspetor completo, C/C++ O0/O2, LTO,
+DSO/archive, checking 0/2, GC forçado e imutabilidade de IR/CFG/propriedades.
+Logs/JSON: `.build/status/`. Inicialização integral, vida útil e publicação
+estão implementadas na 6.4.4 acima; não há COBERTA nem certificado novo.
+
+## Guardas de identidade e aritmética — subetapa 6.4.2
+
+`make -C transaction_test check-guardas` valida as
+[provas independentes de guardas](../gcc-src-tm/OPENMP_TRANSACTION_GUARDS.md):
+102 verificações, 24 execuções e 1036 cenários sintéticos. Cobre limites,
+overflow, guardas incorretas/tardias, redefinições, aliases, junções, ciclos,
+cleanup, conversões e formas compactadas pelo GCC; C/C++ O0/O2, LTO,
+DSO/archive, checking 0/2 e GC forçado. O endereço um após o fim é testado
+com sanitizador de overflow de ponteiros em modo trap, incluindo endereço
+extremo, saídas preservadas em falha e caso válido. Logs/JSON: `.build/guards/`.
+Status e disponibilidade de saídas estão implementados na 6.4.3 acima.
+
+## Representação do fluxo — subetapa 6.4.1
+
+`make -C transaction_test check-fluxo` valida o
+[grafo de High GIMPLE](../gcc-src-tm/OPENMP_TRANSACTION_FLOW.md), com 73
+verificações, 16 execuções e 816 cenários sintéticos. Cobre condições, switch,
+laços, retornos, noreturn e continuações distintas de TRY_FINALLY, incluindo
+substituição de destinos e ausência de retomada após cleanup terminal.
+Confere imutabilidade do GIMPLE/CFG/propriedades, recusas estruturais, cases
+alterados, C/C++ O0/O2, LTO, DSO/archive, checking 0/2 e GC forçado. Logs e
+relatório JSON: `.build/flow/`. As provas de guardas estão na 6.4.2 acima;
+status está implementado na 6.4.3 acima.
+
+## Inspeção independente — etapa 6.3
+
+`make -C transaction_test check-inspecao` valida a
+[inspeção do GIMPLE final](../gcc-src-tm/OPENMP_TRANSACTION_INSPECTION.md):
+73 verificações, 16 execuções e 552 checagens locais/negativas de IR, com
+C/C++ O0/O2, LTO, DSO/archive, checking 0/2 e GC forçado. Cobre acessos sem
+ocorrência, rótulos sem prova, chamadas residuais, alterações de operandos,
+cópias, faixas e duração da janela. Logs e JSON: `.build/inspection/`.
+Não certifica fluxo, grafo ou remapeamento; esses trabalhos seguem nas 6.4–6.6.
+
+## Validação integrada — etapa 5.6
+
+O [inventário da 6.2](../gcc-src-tm/OPENMP_TRANSACTION_OBLIGATIONS.md) é validado
+separadamente por `make -C transaction_test check-obrigacoes`: fatos históricos,
+operações sem vínculo, derivações, reconciliação, recusa, cópias e invalidação,
+com GC forçado e checking 0/2. Logs e `report.json`: `.build/obligations/`.
+Essa matriz valida o inventário; a inspeção independente é testada separadamente.
+
+`make -C transaction_test check-integracao` inclui `check-controlador` e a matriz
+nova: 1303 verificações e 1036 execuções aprovadas no total. C/C++ O0/O2, LTO,
+DSO/archive e GC forçado; falhas em cada posição das operações, dois conflitos
+consecutivos, laços/ramificações, PROT_NONE, agregados/aliases C, chamadas e
+capturas em parallel e limites de 64 bits. Usa o pragma real e wrappers de
+teste, sem invocar clones por plugin. Logs, dumps e relatório de cobertura ficam
+em `.build/integration/`. Ver a
+[revisão de cobertura e limitações](../gcc-src-tm/OPENMP_TRANSACTION_INTEGRATION_VALIDATION.md).
+A tarefa 5 está concluída; o verificador de cobertura da tarefa 6 é separado.
+Seu [contrato de obrigações/evidências da 6.1](../gcc-src-tm/OPENMP_TRANSACTION_VERIFICATION.md)
+orienta a implementação; a 6.3 acrescenta uma barreira estrutural local,
+sem certificados completos de fluxo/grafo/remapeamento.
+
+## Controle externo gerado — etapa 5.5
+
+`make -C transaction_test check-controlador` executa o pragma real com
+`-fopenmp -fopenmp-transaction-stm`, sem plugin de invocação. São 225 verificações
+e 106 execuções C/C++ O0/O2, LTO e DSO/archive: retry integral, conflito no corpo
+e no end, referências, chamadas, capturas em parallel, certificação e limpeza
+fatal comprovada por inspeção interna. Logs, dumps e `report.json` ficam em
+`.build/controller/`. A opção é explícita; o padrão conserva rastreamento.
+Ver o [contrato da etapa 5.5](../gcc-src-tm/OPENMP_TRANSACTION_CONTROLLER.md).
+
+## Integração de chamadas preparadas — etapa 5.4
+
+`make -C transaction_test check-chamadas` verifica chamadas emitidas, bindings
+por ativação, capturas, resultados ponteiro, propagação de status e certificação
+transitiva. São 75 verificações/18 execuções C/C++ O0/O2, DSO/archive e LTO,
+incluindo recusas de callee incompleto e frame GNU incompatível. Usa sonda
+exclusiva de teste e controle externo explícito; não ativa o pragma de produção.
+Logs, dumps e `report.json` ficam em `.build/calls/`. Ver o
+[contrato da etapa 5.4](../gcc-src-tm/OPENMP_TRANSACTION_CALLS.md).
+
 ## Vínculos de ocorrências na gimplificação
 
 `make -C transaction_test check-ocorrencias` verifica avaliação única e os
@@ -408,3 +771,62 @@ A sonda retorna antes do acesso inválido; essa proteção existe somente no tes
 Não valida integração funcional STM do pragma. Contrato e limites em
 [descritores](../gcc-src-tm/OPENMP_TRANSACTION_DESCRIPTORS.md).
 Relatórios e logs ficam em `.build/descriptors/`.
+
+## Fronteira executável STM v1
+
+`make check-abi-v1` valida a ABI exportada por DSO e archive em C/C++ O0/O2.
+Testa símbolos/versionamento, layout/GC e chamadas produzidas pelo construtor
+GIMPLE mediante plugin exclusivo de teste, aninhamento, conflitos entre threads,
+saídas preservadas e confirmação/descarte. Interposição estática força falhas de
+entrada e tags desconhecidas e observa limpeza antes de fatal. Relatórios e
+logs ficam em `.build/abi-v1/`. Os corpos são explicitamente preparados; o
+pragma continua em rastreamento. Contrato e limites em
+[etapa 3](../gcc-src-tm/OPENMP_TRANSACTION_ABI_EXECUTABLE.md).
+
+## Clones preparados — etapa 4
+
+`make check-clones` testa funções geradas pelo compilador a partir de GENERIC.
+A entrada nos clones dormentes e a injeção de falhas usam somente um plugin de
+teste. A matriz cobre C/C++, O0/O2, DSO/archive, recursão, templates, referências,
+capturas GNU, memória privada, avaliação única, resultados preservados e GC
+forçado. Duas TUs verificam inline/COMDAT e identidade de objeto compartilhado,
+com/sem LTO. Logs e relatório ficam em `.build/clones/`.
+
+O layout de identidade anterior foi preservado. Contrato do transporte específico,
+assinaturas, estados e limites em [clones](../gcc-src-tm/OPENMP_TRANSACTION_CLONES.md).
+O pragma continua no caminho antigo; a instrumentação STM é a próxima tarefa.
+
+## Preparação da transformação — etapa 5.1
+
+Execute `make check-preparacao` para validar auxiliares GENERIC, capturas
+explícitas e classificação dos acessos na janela anterior a tree-nested.
+A matriz usa C/C++, O0/O2 e libgomp local dinâmica/archive, com GC forçado,
+parallel, avaliação única, status e diagnósticos de recusa. A sonda chama
+corpos dormentes; não ativa instrumentação STM no pragma. Consulte
+[contrato da preparação](../gcc-src-tm/OPENMP_TRANSACTION_PREPARATION.md).
+
+## Leituras geradas — etapa 5.2
+
+Execute `make check-leituras`: C/C++, O0/O2, ligação dinâmica/archive e LTO,
+com GC forçado, chamada real da ABI, valores privados, referência privada C++,
+const/macro, agregados, página original PROT_NONE e conflito entre threads.
+Falhas na segunda leitura e status desconhecido preservam as saídas. As
+alterações privadas são preparadas explicitamente pela ABI write nos testes;
+a geração de escritas segue na etapa 5.3. Os plugins apenas abrem entradas de
+teste nos corpos dormentes; o pragma de produção permanece em rastreamento.
+Consulte [contrato das leituras](../gcc-src-tm/OPENMP_TRANSACTION_READS.md).
+
+## Escritas geradas — etapa 5.3
+
+Execute `make check-escritas`: C/C++, O0/O2, ligação dinâmica/archive e LTO,
+com GC forçado e chamadas read/write reais. Exercita read-modify-write,
+avaliação única, stores derivados de chamadas/cópias agregadas, aliases,
+página original PROT_NONE, status desconhecido, falhas intermediárias e conflito
+real de promoção. Verifica memória original intacta antes do commit, descarte
+sem publicação parcial e repetição explícita do corpo inteiro. O pragma de
+produção continua em rastreamento. Consulte o
+[contrato de escritas](../gcc-src-tm/OPENMP_TRANSACTION_WRITES.md).
+
+As menções acima a escritas ainda comuns descrevem o estado histórico da 5.2.
+As regressões de preparação/leitura agora consultam valores privados antes de
+confirmar; incluem novamente mutação do ponteiro capturado seguida de uso.

@@ -161,10 +161,12 @@ newtm_hash_log_create (size_t bucket_count,
 		       newtm_hash_policy_destroy_fn destroy_policy,
 		       struct newtm_hash_table **out)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_create: bucket_count=%zu, destroy_policy=%s, "
 	  "out=%p\n", bucket_count,
 	  destroy_policy != NULL ? "nonnull" : "null", (void *) out);
   fflush (stdout);
+  */
 }
 
 /* Create an empty table with BUCKET_COUNT buckets and one mutex per bucket.
@@ -238,8 +240,10 @@ newtm_hash_create (size_t bucket_count,
 enum newtm_hash_status
 newtm_hash_destroy (struct newtm_hash_table *table)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_destroy: table=%p\n", (void *) table);
   fflush (stdout);
+  */
   if (table == NULL)
     return NEWTM_HASH_INVALID;
 
@@ -297,9 +301,11 @@ enum newtm_hash_status
 newtm_hash_acquire (struct newtm_hash_table *table, const void *address,
                     size_t size, struct newtm_hash_entry **out)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_acquire: table=%p, address=%p, size=%zu, "
 	  "out=%p\n", (void *) table, (void *) address, size, (void *) out);
   fflush (stdout);
+  */
   if (out)
     *out = NULL;
   if (table == NULL || address == NULL || size == 0 || out == NULL)
@@ -373,9 +379,11 @@ newtm_hash_lookup_acquire (struct newtm_hash_table *table,
                            const void *address,
                            struct newtm_hash_entry **out)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_lookup_acquire: table=%p, address=%p, "
 	  "out=%p\n", (void *) table, (void *) address, (void *) out);
   fflush (stdout);
+  */
   if (out)
     *out = NULL;
   if (table == NULL || address == NULL || out == NULL)
@@ -450,9 +458,11 @@ void
 newtm_hash_release (struct newtm_hash_table *table,
                     struct newtm_hash_entry *entry)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_release: table=%p, entry=%p\n",
 	  (void *) table, (void *) entry);
   fflush (stdout);
+  */
   struct newtm_hash_bucket *bucket = &table->buckets[entry->bucket_index];
   gomp_mutex_lock (&bucket->mutex);
   if (--entry->references != 0)
@@ -486,8 +496,10 @@ newtm_hash_release (struct newtm_hash_table *table,
 const void *
 newtm_hash_entry_address (const struct newtm_hash_entry *entry)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_entry_address: entry=%p\n", (void *) entry);
   fflush (stdout);
+  */
   return entry->address;
 }
 
@@ -502,8 +514,10 @@ newtm_hash_entry_address (const struct newtm_hash_entry *entry)
 size_t
 newtm_hash_entry_size (const struct newtm_hash_entry *entry)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_entry_size: entry=%p\n", (void *) entry);
   fflush (stdout);
+  */
   return entry->size;
 }
 
@@ -542,10 +556,12 @@ newtm_hash_entry_visit (struct newtm_hash_table *table,
                         struct newtm_hash_entry *entry,
                         newtm_hash_visit_fn visit, void *argument)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_entry_visit: table=%p, entry=%p, visit=%s, "
 	  "argument=%p\n", (void *) table, (void *) entry,
 	  visit != NULL ? "nonnull" : "null", argument);
   fflush (stdout);
+  */
   struct newtm_hash_bucket *bucket = &table->buckets[entry->bucket_index];
   gomp_mutex_lock (&bucket->mutex);
   visit (entry->address, entry->size, &entry->policy_data, argument);
@@ -578,8 +594,10 @@ newtm_hash_entry_visit (struct newtm_hash_table *table,
 size_t
 newtm_hash_count (struct newtm_hash_table *table)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_hash_count: table=%p\n", (void *) table);
   fflush (stdout);
+  */
   for (size_t i = 0; i < table->bucket_count; ++i)
     gomp_mutex_lock (&table->buckets[i].mutex);
 

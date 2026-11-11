@@ -105,7 +105,7 @@ mark_use (tree expr, bool rvalue_p, bool read_p,
       && TYPE_READONLY (TREE_TYPE (expr)))
     {
       if (building_stmt_list_p ())
-        if (tree marker = newtm_note_source_read (expr, loc == UNKNOWN_LOCATION ? input_location : loc)) add_stmt (marker);
+        if (tree marker = newtm_note_source_read (expr, loc == UNKNOWN_LOCATION ? input_location : loc, true)) add_stmt (marker);
     }
 
   if (reject_builtin && reject_gcc_builtin (expr, loc))

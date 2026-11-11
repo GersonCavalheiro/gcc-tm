@@ -28,6 +28,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "rtl.h"
 #include "tree.h"
 #include "gimple.h"
+#include "newtm-lto.h"
 #include "tree-pass.h"
 #include "ssa.h"
 #include "gimple-streamer.h"
@@ -2482,6 +2483,8 @@ output_function (struct cgraph_node *node, int output_order)
   streamer_write_uhwi (ob, block_tree_leafs.length ());
   for (unsigned i = 0; i < block_tree_leafs.length (); ++i)
     stream_write_tree (ob, block_tree_leafs[i], true);
+
+  stream_write_tree (ob, newtm_lto_payload (function), true);
 
   /* We also stream abstract functions where we stream only stuff needed for
      debug info.  */

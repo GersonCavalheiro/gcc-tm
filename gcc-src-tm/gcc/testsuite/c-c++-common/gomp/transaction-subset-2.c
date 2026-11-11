@@ -12,4 +12,6 @@ int main (void)
 int next (int n) { return n + 1; }
 /* { dg-final { scan-tree-dump "canonical-plan:.*kind=1" "gimple" } } */
 /* { dg-final { scan-tree-dump "prepare\\(next\\)" "gimple" } } */
-/* { dg-final { scan-tree-dump-not "GOMP_transaction_stm|newtm_read|newtm_write" "gimple" } } */
+/* Prepared clones may exist; the original main must remain tracing-only. */
+/* { dg-final { scan-tree-dump "(?n)^int main \\(\\)\\n.\\n" "gimple" } } */
+/* { dg-final { scan-tree-dump-not {(?n)^int main \(\)\n.\n(?:[ \t][^\n]*\n|\n)*[ \t][^\n]*(GOMP_transaction_stm|newtm_read|newtm_write)} "gimple" } } */

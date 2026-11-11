@@ -167,6 +167,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple.h"
 #include "omp-general.h"
 #include "newtm-occurrence.h"
+#include "newtm-clone.h"
+#include "newtm-current.h"
+#include "newtm-lto.h"
+#include "newtm-abi.h"
 #include "cfghooks.h"
 #include "regset.h"     /* FIXME: For reg_obstack.  */
 #include "alloc-pool.h"
@@ -701,6 +705,7 @@ cgraph_node::analyze (void)
 	  gimple_register_cfg_hooks ();
 	  bitmap_obstack_initialize (NULL);
 	  execute_pass_list (cfun, g->get_passes ()->all_lowering_passes);
+	  newtm_abi_verify_cfg (cfun);
 	  compact_blocks ();
 	  bitmap_obstack_release (NULL);
 	  lowered = true;
@@ -2239,7 +2244,11 @@ ipa_passes (void)
   gimple_register_cfg_hooks ();
   bitmap_obstack_initialize (NULL);
 
+  if (in_lto_p) newtm_lto_rebuild_unit ();
   invoke_plugin_callbacks (PLUGIN_ALL_IPA_PASSES_START, NULL);
+  /* A certificate covers only its current proof window. Close it before
+     transformations/streaming; later phases reconstruct their own proof. */
+  newtm_current_end_frontend ();
 
   if (!in_lto_p)
     {
@@ -2297,6 +2306,8 @@ ipa_passes (void)
 
   if (flag_generate_lto || flag_generate_offload)
     targetm.asm_out.lto_end ();
+  if (!in_lto_p && flag_generate_lto && flag_fat_lto_objects)
+    newtm_lto_finish (true);
 
   if (!flag_ltrans
       && ((in_lto_p && flag_incremental_link != INCREMENTAL_LINK_LTO)
@@ -2592,7 +2603,10 @@ symbol_table::finalize_compilation_unit (void)
 
   /* All same-unit definitions are available, before any body is gimplified. */
   if (flag_openmp && !in_lto_p)
-    newtm_analyze_unit ();
+    {
+      newtm_analyze_unit ();
+      if (!seen_error ()) newtm_clone_unit ();
+    }
 
   /* Gimplify and lower all functions, compute reachability and
      remove unreachable nodes.  */
@@ -2605,6 +2619,8 @@ symbol_table::finalize_compilation_unit (void)
   analyze_functions (/*first_time=*/false);
 
   /* All nested functions should be lowered now.  */
+  if (flag_openmp_transaction_stm && !in_lto_p && !seen_error ())
+    newtm_clone_certify_regions ();
   nested_function_info::release ();
   newtm_occurrence_reset ();
 

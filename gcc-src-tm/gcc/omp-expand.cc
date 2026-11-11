@@ -60,6 +60,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "attribs.h"
 #include "tree-eh.h"
 #include "opts.h"
+#include "newtm-clone.h"
 
 /* OMP region information.  Every parallel and workshare
    directive is enclosed between two markers, the OMP_* directive
@@ -1292,6 +1293,7 @@ expand_omp_taskreg (struct omp_region *region)
 
   child_fn = gimple_omp_taskreg_child_fn (entry_stmt);
   child_cfun = DECL_STRUCT_FUNCTION (child_fn);
+  if (!child_cfun->cfg) newtm_clone_record_outline (child_fn, current_function_decl);
 
   entry_bb = region->entry;
   if (gimple_code (entry_stmt) == GIMPLE_OMP_TASK)

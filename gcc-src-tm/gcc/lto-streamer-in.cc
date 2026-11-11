@@ -28,6 +28,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "rtl.h"
 #include "tree.h"
 #include "gimple.h"
+#include "newtm-abi.h"
+#include "newtm-lto.h"
 #include "cfghooks.h"
 #include "tree-pass.h"
 #include "ssa.h"
@@ -1405,6 +1407,8 @@ input_function (tree fn_decl, class data_in *data_in,
   while (block_leaf_count--)
     stream_read_tree (ib, data_in);
 
+  newtm_lto_receive (fn_decl, stream_read_tree (ib, data_in));
+
   if (!streamer_read_uhwi (ib))
     return;
 
@@ -1572,6 +1576,8 @@ input_function (tree fn_decl, class data_in *data_in,
   update_max_bb_count ();
   fixup_call_stmt_edges (node, stmts);
   execute_all_ipa_stmt_fixups (node, stmts);
+  newtm_abi_verify_cfg (cfun);
+  newtm_lto_validate_body (cfun);
 
   free_dominance_info (CDI_DOMINATORS);
   free_dominance_info (CDI_POST_DOMINATORS);

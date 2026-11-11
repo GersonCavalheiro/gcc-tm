@@ -11,4 +11,6 @@ void trace (T &object)
 
 void instantiate (int &x) { trace (x); }
 
-/* { dg-final { scan-tree-dump "GOMP_transaction_register \\(object," "omplower" } } */
+/* The reference is evaluated into a temporary before registration. */
+/* { dg-final { scan-tree-dump {object\.[0-9]+_[0-9]+ = object;} "omplower" } } */
+/* { dg-final { scan-tree-dump-times {GOMP_transaction_register \(object\.[0-9]+_[0-9]+,} 1 "omplower" } } */

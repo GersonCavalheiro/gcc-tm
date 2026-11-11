@@ -1,0 +1,166 @@
+{
+  "step": 4,
+  "preparation_complete": true,
+  "step5_full_matrix_executed": false,
+  "stage_6_6_complete": false,
+  "cases": [
+    {
+      "id": "N01",
+      "requirement": "D01: assinatura incompatível",
+      "rule": "V06",
+      "runner": "verificar_diagnosticos_inventariados.py",
+      "mode": "parameter_owner",
+      "fixture": "graph_cycle.c",
+      "cause": "prepared signature lost its parameter correspondence",
+      "level": "native aggregate"
+    },
+    {
+      "id": "N02",
+      "requirement": "D21: guarda de overflow ausente",
+      "rule": "V03",
+      "runner": "verificar_diagnosticos_inventariados.py",
+      "mode": "offset_flag",
+      "fixture": "memory_static_array.c",
+      "cause": "offset lacks an overflow guard",
+      "level": "native aggregate"
+    },
+    {
+      "id": "N03",
+      "requirement": "D34: dependência de membro não preparado",
+      "rule": "V06",
+      "runner": "verificar_membro_nao_preparado.py",
+      "mode": "append declared dependency",
+      "fixture": "unprepared_member.c",
+      "cause": "transaction current graph contains an unprepared member",
+      "level": "aggregate recomposition after approved baseline"
+    },
+    {
+      "id": "N04",
+      "requirement": "PRIVATE constante sem alocação da ativação",
+      "rule": "V04",
+      "runner": "verificar_regra_armazenamento.py",
+      "mode": "global_private",
+      "fixture": "storage_rule.c",
+      "cause": "constant PRIVATE classification lacks an activation-owned allocation",
+      "level": "real component source with hidden isolated maps; not integrated tag mutation"
+    },
+    {
+      "id": "N05",
+      "requirement": "D04: assinatura da invocação do controlador",
+      "rule": "V06",
+      "runner": "verificar_diagnosticos_inventariados.py",
+      "mode": "controller_channels",
+      "fixture": "graph_cycle.c",
+      "cause": "incompatible prepared signature",
+      "level": "native aggregate"
+    },
+    {
+      "id": "N06",
+      "requirement": "D04: proprietário do controlador",
+      "rule": "V07",
+      "runner": "verificar_diagnosticos_inventariados.py",
+      "mode": "controller_owner",
+      "fixture": "controller_parallel.c",
+      "cause": "owner mismatch",
+      "level": "native aggregate"
+    },
+    {
+      "id": "N07",
+      "requirement": "Domínio da tag de armazenamento",
+      "rule": "V04",
+      "runner": "verificar_regra_armazenamento.py",
+      "mode": "invalid_tag",
+      "fixture": "storage_rule.c",
+      "cause": "storage classification guard is not established",
+      "level": "component"
+    },
+    {
+      "id": "N08",
+      "requirement": "Escolha incorreta do ramo privado",
+      "rule": "V04",
+      "runner": "verificar_regra_armazenamento.py",
+      "mode": "wrong_branch",
+      "fixture": "storage_rule.c",
+      "cause": "storage classification guard is not established",
+      "level": "component"
+    },
+    {
+      "id": "N09",
+      "requirement": "Faixa inválida deve conservar V03",
+      "rule": "V03",
+      "runner": "verificar_regra_armazenamento.py",
+      "mode": "range",
+      "fixture": "storage_rule.c",
+      "cause": "validity or arithmetic guard is not established",
+      "level": "component"
+    },
+    {
+      "id": "N10",
+      "requirement": "Primeira falha deve ser preservada",
+      "rule": "V03",
+      "runner": "verificar_regra_armazenamento.py",
+      "mode": "first_failure",
+      "fixture": "storage_rule.c",
+      "cause": "earlier identity failure",
+      "level": "component"
+    }
+  ],
+  "common_oracles": [
+    "Valid baseline compiles/links/runs",
+    "Nonzero negative compilation status",
+    "Specific cause and expected contextual rule",
+    "Operation/function/source location present",
+    "No ICE",
+    "No negative object output"
+  ],
+  "primary_runners": [
+    {
+      "command": "python3 transaction_test/verificar_diagnosticos_inventariados.py gcc-build",
+      "expected_negative_cases": 32,
+      "expected_positive_executions": 20,
+      "matrix": "C/C++, O0, checking0/2"
+    },
+    {
+      "command": "python3 transaction_test/verificar_regra_armazenamento.py gcc-build",
+      "expected_negative_cases": 40,
+      "expected_positive_executions": 16,
+      "matrix": "C/C++, O0/O2, checking0/2"
+    },
+    {
+      "command": "python3 transaction_test/verificar_membro_nao_preparado.py gcc-build",
+      "expected_negative_cases": 4,
+      "expected_positive_executions": 4,
+      "matrix": "C/C++, O0, checking0/2"
+    }
+  ],
+  "lto_regression": {
+    "command": "python3 transaction_test/auditar_aceitacao.py gcc-build",
+    "expected_negative_cases": 17,
+    "expected_positive_executions": 5,
+    "limitation": "Representative streaming regression, not each N01-N10 injected in every LTO phase"
+  },
+  "expected_totals_if_all_four_pass": {
+    "negative_cases": 93,
+    "positive_executions": 45
+  },
+  "smoke_only_this_step": "verificar_membro_nao_preparado.py gcc-build --smoke: C O0 checking0, one negative and one baseline run",
+  "prepared_file_sha256": {
+    "transaction_test/cfg_abi_probe_plugin.cc": "d3b129599ef45b2116824b378823e6d80505fd5d5a502524de1cbee0f3823cd4",
+    "transaction_test/controller_parallel.c": "4f5f3d88dfc2cc46338d60b5c1df882f9ef22e688e2428d6f2942af1e4e5b9e1",
+    "transaction_test/graph_cycle.c": "35e47c01554a67f2c41d4789286726d4a42dfd1042473fc0055c140da4fda61c",
+    "transaction_test/memory_static_array.c": "5bc6a1052fd4901d37dd52ee23e8a84c721e0504e5546bc2839f44c46987741a",
+    "transaction_test/storage_rule.c": "37b4849a12329b46366b7530118d644e2f5f8a6de6ebae89799bc12802cdd1b9",
+    "transaction_test/storage_rule_probe_plugin.cc": "19e2958c1ea2184b182b20a29509eb1eaa375c1ea0e9d5fad676eff0cf08a422",
+    "transaction_test/unprepared_member.c": "6dd673b2dd7806f1c46d1cde9be3c7ef4eae91f0a510ff35f4fd50675b5cf7e3",
+    "transaction_test/unprepared_member_probe_plugin.cc": "f061fc009b655cd986ebe920825dbaca86f799a0c740bf8bf793d39e19ce177e",
+    "transaction_test/verificar_diagnosticos_inventariados.py": "8523ea104e4c7919bff35deffb10af846b505b40a7fce23364fecadb368b538b",
+    "transaction_test/verificar_membro_nao_preparado.py": "f4b9338294094701f8f56263d98d7c3b11b7503f966dc324357e6835647bda16",
+    "transaction_test/verificar_regra_armazenamento.py": "2401f594281e2769ca508ea63821580c09fefb0a9d4a1c3d2424f0f54f8fa39b"
+  },
+  "smoke_evidence": {
+    "report": "transaction_test/.build/unprepared-member/20261111T161829373705Z/report.json",
+    "sha256": "233aff52a2427a52f1f68ac83111dbf6d744caca848f87974c1350bbaeed0cee",
+    "negative_cases": 1,
+    "positive_executions": 1
+  }
+}

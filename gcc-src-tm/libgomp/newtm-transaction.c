@@ -125,9 +125,11 @@ enum newtm_lifecycle_status
 newtm_begin (struct newtm_hash_owner_lease *lease, struct newtm_context **slot,
              bool *outermost)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_begin: lease=%p, slot=%p, outermost=%p\n",
           (void *) lease, (void *) slot, (void *) outermost);
   fflush (stdout);
+  */
   if (outermost)
     *outermost = false;
   if (!slot || !outermost)
@@ -196,9 +198,11 @@ enum newtm_lifecycle_status
 newtm_register (struct newtm_context *ctx, const void *object, size_t size,
                 enum newtm_object_kind kind)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_register: ctx=%p, object=%p, size=%zu, kind=%d\n",
 	  (void *) ctx, (void *) object, size, (int) kind);
   fflush (stdout);
+  */
   if (!newtm_context_owned (ctx))
     return NEWTM_LIFECYCLE_INVALID;
   enum newtm_lifecycle_status status = newtm_context_status (ctx);
@@ -336,9 +340,11 @@ enum newtm_access_status
 newtm_reserve (struct newtm_context *ctx, const void *object,
                enum newtm_reservation mode)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_reserve: ctx=%p, object=%p, mode=%d\n",
           (void *) ctx, (void *) object, (int) mode);
   fflush (stdout);
+  */
   if (!newtm_context_owned (ctx))
     return NEWTM_ACCESS_INVALID;
   enum newtm_lifecycle_status state = newtm_context_status (ctx);
@@ -492,8 +498,10 @@ newtm_commit_visit (const void *object, size_t size, void **data, void *argument
 enum newtm_lifecycle_status
 newtm_end (struct newtm_context **slot)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_end: slot=%p\n", (void *) slot);
   fflush (stdout);
+  */
   if (!slot || !newtm_context_owned (*slot) || (*slot)->owning_slot != slot)
     return NEWTM_LIFECYCLE_INVALID;
   struct newtm_context *ctx = *slot;
@@ -544,9 +552,11 @@ newtm_end (struct newtm_context **slot)
 enum newtm_lifecycle_status
 newtm_fail (struct newtm_context *ctx, enum newtm_access_status cause)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_fail: ctx=%p, cause=%d\n",
           (void *) ctx, (int) cause);
   fflush (stdout);
+  */
   if (!newtm_context_owned (ctx)
       || ctx->state == NEWTM_ATTEMPT_PUBLISHING
       || ctx->state == NEWTM_ATTEMPT_CLOSED)
@@ -683,8 +693,10 @@ newtm_teardown (struct newtm_context **slot, struct newtm_context *ctx)
 enum newtm_lifecycle_status
 newtm_discard (struct newtm_context **slot)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_discard: slot=%p\n", (void *) slot);
   fflush (stdout);
+  */
   if (!slot || !newtm_context_owned (*slot) || (*slot)->owning_slot != slot)
     return NEWTM_LIFECYCLE_INVALID;
   struct newtm_context *ctx = *slot;
@@ -704,9 +716,11 @@ newtm_discard (struct newtm_context **slot)
 enum newtm_lifecycle_status
 newtm_after_failure (struct newtm_context **slot, size_t attempt)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_after_failure: slot=%p, attempt=%zu\n",
           (void *) slot, attempt);
   fflush (stdout);
+  */
   if (!slot || !newtm_context_owned (*slot) || (*slot)->owning_slot != slot)
     gomp_fatal ("transaction failure control requires an owned live slot");
   struct newtm_context *ctx = *slot;
@@ -794,8 +808,10 @@ newtm_execute (newtm_body_fn body, void *argument)
 enum newtm_lifecycle_status
 newtm_backoff (size_t attempt)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_backoff: attempt=%zu\n", attempt);
   fflush (stdout);
+  */
   if (!attempt)
     return NEWTM_LIFECYCLE_INVALID;
   size_t shift = attempt > 11 ? 10 : attempt - 1;
@@ -958,10 +974,12 @@ enum newtm_access_status
 newtm_read (struct newtm_context *ctx, const void *object, size_t offset,
 	    void *destination, size_t size)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_read: ctx=%p, object=%p, offset=%zu, "
 	  "destination=%p, size=%zu\n",
 	  (void *) ctx, (void *) object, offset, destination, size);
   fflush (stdout);
+  */
   struct newtm_record *record;
   enum newtm_access_status status
     = newtm_prepare_access (ctx, object, offset, destination, size,
@@ -1004,10 +1022,12 @@ enum newtm_access_status
 newtm_write (struct newtm_context *ctx, const void *object, size_t offset,
 	     const void *source, size_t size)
 {
+  /* Execution tracing disabled.
   printf ("[newtm] newtm_write: ctx=%p, object=%p, offset=%zu, "
 	  "source=%p, size=%zu\n",
 	  (void *) ctx, (void *) object, offset, (void *) source, size);
   fflush (stdout);
+  */
   struct newtm_record *record;
   enum newtm_access_status status
     = newtm_prepare_access (ctx, object, offset, source, size,

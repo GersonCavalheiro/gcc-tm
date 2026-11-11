@@ -684,3 +684,23 @@ GOMP_NEWTM_1.0 {
     GOMP_transaction_register;
     GOMP_transaction_end;
 };
+
+GOMP_NEWTM_2.0 {
+  global:
+    GOMP_transaction_stm_v1_begin;
+    GOMP_transaction_stm_v1_register;
+    GOMP_transaction_stm_v1_read;
+    GOMP_transaction_stm_v1_write;
+    GOMP_transaction_stm_v1_status;
+    GOMP_transaction_stm_v1_nest_begin;
+    GOMP_transaction_stm_v1_nest_end;
+    GOMP_transaction_stm_v1_end;
+    GOMP_transaction_stm_v1_fail;
+    GOMP_transaction_stm_v1_discard;
+    GOMP_transaction_stm_v1_after_failure;
+} GOMP_NEWTM_1.0;
+
+GOMP_NEWTM_2.1 {
+  global:
+    GOMP_transaction_stm_v1_fatal;
+} GOMP_NEWTM_2.0;

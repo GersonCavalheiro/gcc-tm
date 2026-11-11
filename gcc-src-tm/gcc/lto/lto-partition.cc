@@ -26,6 +26,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "basic-block.h"
 #include "tree.h"
 #include "gimple.h"
+#include "newtm-lto.h"
 #include "alloc-pool.h"
 #include "stringpool.h"
 #include "cgraph.h"
@@ -204,6 +205,18 @@ add_symbol_to_partition_1 (ltrans_partition part, symtab_node *node)
       struct cgraph_edge *e;
       if (!node->alias && c == SYMBOL_PARTITION)
 	part->insns += ipa_size_summaries->get (cnode)->size;
+
+      /* A current transaction proof needs its complete closure in LTRANS.
+         Keep protected proof units together; ordinary functions retain the
+         selected partitioning policy. */
+      if (newtm_lto_protected_p (cnode->decl))
+        {
+          cgraph_node *member;
+          FOR_EACH_DEFINED_FUNCTION (member)
+            if (newtm_lto_protected_p (member->decl)
+                && member->get_partitioning_class () != SYMBOL_EXTERNAL)
+              add_symbol_to_partition_1 (part, member);
+        }
 
       /* Add all inline clones and callees that are duplicated.  */
       for (e = cnode->callees; e; e = e->next_callee)

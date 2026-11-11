@@ -42,6 +42,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "attribs.h"
 #include "asan.h"
 #include "attr-fnspec.h"
+#include "newtm-lto.h"
 
 #define PERCENT(x,y) ((float)(x) * 100.0 / (float)(y))
 
@@ -2551,7 +2552,8 @@ pass_build_ssa::execute (function *fun)
       if (decl
 	  && VAR_P (decl)
 	  && !VAR_DECL_IS_VIRTUAL_OPERAND (decl)
-	  && DECL_IGNORED_P (decl))
+	  && DECL_IGNORED_P (decl)
+	  && !newtm_lto_protected_p (fun->decl))
 	SET_SSA_NAME_VAR_OR_IDENTIFIER (name, DECL_NAME (decl));
     }
 

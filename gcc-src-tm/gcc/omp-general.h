@@ -28,8 +28,9 @@ along with GCC; see the file COPYING3.  If not see
 
 extern void newtm_analyze_unit (void);
 extern void newtm_save_source_body (tree);
-extern tree newtm_note_source_read (tree, location_t);
+extern tree newtm_note_source_read (tree, location_t, bool = false);
 extern tree newtm_source_read (tree);
+extern void newtm_bind_source_marker (tree, tree);
 
 /*  Flags for an OpenACC loop.  */
 

@@ -504,3 +504,51 @@ DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_REGISTER, "GOMP_transaction_register
 		  BT_FN_VOID_PTR_SIZE, ATTR_NOTHROW_LIST)
 DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_END, "GOMP_transaction_end",
 		  BT_FN_VOID, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_BEGIN,
+                  "GOMP_transaction_stm_v1_begin",
+                  BT_FN_NEWTM_BEGIN, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_REGISTER,
+                  "GOMP_transaction_stm_v1_register",
+                  BT_FN_NEWTM_REGISTER, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_READ,
+                  "GOMP_transaction_stm_v1_read",
+                  BT_FN_NEWTM_READ, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_WRITE,
+                  "GOMP_transaction_stm_v1_write",
+                  BT_FN_NEWTM_WRITE, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_END,
+                  "GOMP_transaction_stm_v1_end",
+                  BT_FN_NEWTM_SLOT, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_FAIL,
+                  "GOMP_transaction_stm_v1_fail",
+                  BT_FN_NEWTM_FAIL, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_DISCARD,
+                  "GOMP_transaction_stm_v1_discard",
+                  BT_FN_NEWTM_SLOT, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_AFTER_FAILURE,
+                  "GOMP_transaction_stm_v1_after_failure",
+                  BT_FN_NEWTM_FAILURE, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_NEST_BEGIN,
+                  "GOMP_transaction_stm_v1_nest_begin",
+                  BT_FN_NEWTM_SLOT, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_NEST_END,
+                  "GOMP_transaction_stm_v1_nest_end",
+                  BT_FN_NEWTM_SLOT, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_STATUS,
+                  "GOMP_transaction_stm_v1_status",
+                  BT_FN_NEWTM_SLOT, ATTR_NOTHROW_LIST)
+
+DEF_GOMP_BUILTIN (BUILT_IN_GOMP_TRANSACTION_STM_V1_FATAL,
+                  "GOMP_transaction_stm_v1_fatal",
+                  BT_FN_NEWTM_FATAL, ATTR_COLD_NORETURN_NOTHROW_LEAF_LIST)

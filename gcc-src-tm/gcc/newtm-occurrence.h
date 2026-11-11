@@ -12,6 +12,8 @@
    captured registration type and parent/group sites are provenance, never
    expressions to evaluate again. Source helper trees may be explicitly freed. */
 extern void newtm_occurrence_select (tree);
+extern bool newtm_occurrence_selected_p (tree);
+extern void newtm_occurrence_selected_functions (auto_vec<tree> &);
 extern bool newtm_occurrence_enter (tree, tree);
 extern void newtm_occurrence_leave ();
 extern void newtm_occurrence_emit (gimple *);
@@ -20,6 +22,8 @@ extern void newtm_occurrence_capture (gimple_seq, gimple *);
 extern tree newtm_occurrence_binding (const gimple *);
 extern void newtm_occurrence_copy (const gimple *, gimple *);
 extern void newtm_occurrence_retire (gimple_seq);
+extern void newtm_occurrence_forget (const gimple *);
+extern void newtm_occurrence_derive_store (const gimple *, gimple *);
 extern void newtm_occurrence_reset ();
 
 /* RAII balances the source stack on every early return/error in gimplify. */

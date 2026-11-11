@@ -191,3 +191,107 @@ check-ocorrencias:
 .PHONY: check-descritores
 check-descritores:
 	python3 verificar_descritores.py $(GCC_BUILD)
+
+.PHONY: check-abi-v1
+check-abi-v1:
+	python3 verificar_abi_v1.py $(GCC_BUILD)
+
+.PHONY: check-clones
+check-clones:
+	python3 verificar_clones.py $(GCC_BUILD)
+
+.PHONY: check-preparacao
+check-preparacao:
+	python3 verificar_preparacao.py $(GCC_BUILD)
+
+.PHONY: check-leituras
+check-leituras:
+	python3 verificar_leituras.py $(GCC_BUILD)
+
+.PHONY: check-escritas
+check-escritas:
+	python3 verificar_escritas.py $(GCC_BUILD)
+
+.PHONY: check-chamadas
+check-chamadas:
+	python3 verificar_chamadas.py $(GCC_BUILD)
+
+.PHONY: check-controlador
+check-controlador:
+	python3 verificar_controlador.py $(GCC_BUILD)
+
+.PHONY: check-integracao
+check-integracao: check-controlador
+	python3 verificar_integracao.py $(GCC_BUILD)
+
+.PHONY: check-obrigacoes
+check-obrigacoes:
+	python3 verificar_obrigacoes.py $(GCC_BUILD)
+
+.PHONY: check-inspecao
+check-inspecao:
+	python3 verificar_inspecao.py $(GCC_BUILD)
+
+.PHONY: check-fluxo
+check-fluxo:
+	python3 verificar_fluxo.py $(GCC_BUILD)
+
+.PHONY: check-guardas
+check-guardas:
+	python3 verificar_guardas.py $(GCC_BUILD)
+
+.PHONY: check-status
+check-status:
+	python3 verificar_status.py $(GCC_BUILD)
+
+.PHONY: check-vida-util
+check-vida-util:
+	python3 verificar_vida_util.py $(GCC_BUILD)
+
+.PHONY: check-falhas
+check-falhas:
+	python3 verificar_falhas.py $(GCC_BUILD)
+
+.PHONY: check-proprietario
+check-proprietario:
+	python3 verificar_owner.py $(GCC_BUILD)
+
+.PHONY: check-composicao
+check-composicao:
+	python3 verificar_composicao.py $(GCC_BUILD)
+
+.PHONY: check-transitivo
+check-transitivo:
+	python3 verificar_transitivo.py $(GCC_BUILD)
+
+.PHONY: check-memoria
+check-memoria:
+	python3 verificar_memoria.py $(GCC_BUILD)
+
+.PHONY: check-canais
+check-canais:
+	python3 verificar_canais.py $(GCC_BUILD)
+
+.PHONY: check-status-atual
+check-status-atual:
+	python3 verificar_status_atual.py $(GCC_BUILD)
+
+.PHONY: check-proprietario-atual
+check-proprietario-atual:
+	python3 verificar_owner_atual.py $(GCC_BUILD)
+
+.PHONY: check-cobertura
+check-cobertura:
+	python3 verificar_cobertura.py $(GCC_BUILD)
+
+.PHONY: check-grafo-atual
+check-grafo-atual:
+	python3 verificar_grafo_atual.py $(GCC_BUILD)
+
+.PHONY: check-grafo-lto
+check-grafo-lto:
+	python3 verificar_grafo_lto.py $(GCC_BUILD)
+
+.PHONY: check-contraprovas-lto
+check-contraprovas-lto:
+	python3 verificar_contraprovas_lto.py $(GCC_BUILD)

@@ -37,6 +37,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stor-layout.h"
 #include "calls.h"
 #include "tree-inline.h"
+#include "newtm-clone.h"
 #include "langhooks.h"
 #include "cfganal.h"
 #include "tree-iterator.h"
@@ -146,6 +147,7 @@ void
 insert_decl_map (copy_body_data *id, tree key, tree value)
 {
   id->decl_map->put (key, value);
+  newtm_clone_record_decl (value, key);
 
   /* Always insert an identity map as well.  If we see this same new
      node again, we won't want to duplicate it a second time.  */

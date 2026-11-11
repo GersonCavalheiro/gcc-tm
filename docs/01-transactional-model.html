@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Modelo transacional e políticas | GCC-TM</title><style>body{margin:0;color:#172c3c;background:#f5f7fa;font:17px/1.65 system-ui,sans-serif}header,main,footer{max-width:1080px;margin:auto;padding:1.5rem}header{border-bottom:3px solid #167579}main{background:white}a{color:#075d91;text-underline-offset:3px}nav{display:flex;flex-wrap:wrap;gap:1rem}h1,h2,h3{line-height:1.25;scroll-margin-top:1rem}h2{margin-top:2.5rem;border-bottom:1px solid #d5dfe7;padding-bottom:.4rem}pre{background:#102637;color:#edf5fa;padding:1rem;overflow:auto;border-radius:6px;font-size:.88rem}code{font-family:ui-monospace,monospace}p code,td code,li code{overflow-wrap:anywhere}table{display:block;overflow-x:auto;border-collapse:collapse;margin:1.5rem 0;width:100%}th,td{text-align:left;vertical-align:top;border:1px solid #cbd5df;padding:.6rem}th{background:#edf3f7}.toc{background:#f0f6f8;padding:1rem;border-left:4px solid #167579}.toc ul{padding-left:1.5rem}footer{font-size:.9rem;color:#455b69}.skip{position:absolute;left:-10000px}.skip:focus{position:static} @media(max-width:600px){header,main,footer{padding:1rem}body{font-size:16px}}</style></head><body><a class="skip" href="#conteudo">Ir para o conteúdo</a><header><strong>GCC-TM · Documentação</strong><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="index.html">← Anterior</a> <a rel="next" href="02-transaction-directive.html">Próximo →</a></nav></header><main id="conteudo"><h1 id="modelo-transacional-e-politicas">Modelo transacional e políticas</h1><div class="toc"><span class="toctitle">Nesta página</span><ul><li><a href="#classificacao-das-seis-politicas-implementadas">Classificação das seis políticas implementadas</a></li><li><a href="#politica-de-deteccao-de-conflitos-conflict-detection-policy">Política de Detecção de Conflitos — Conflict Detection Policy</a></li><li><a href="#politica-de-resolucao-de-conflitos-conflict-resolution-policy-contention-management">Política de Resolução de Conflitos — Conflict Resolution Policy / Contention Management</a></li><li><a href="#politica-de-gerenciamento-de-versoes-version-management-policy">Política de Gerenciamento de Versões — Version Management Policy</a></li><li><a href="#politica-de-granularidade-granularity-policy">Política de Granularidade — Granularity Policy</a></li><li><a href="#politica-de-visibilidade-e-isolamento-isolation-opacity-policy">Política de Visibilidade e Isolamento — Isolation / Opacity Policy</a></li><li><a href="#politica-de-privatizacao-privatization-policy">Política de Privatização — Privatization Policy</a></li><li><a href="#politicas-por-estagio">Políticas por estágio</a></li><li><a href="#identidade-e-granularidade">Identidade e granularidade</a></li><li><a href="#conflitos-estados-e-progresso">Conflitos, estados e progresso</a></li><li><a href="#garantias-e-limites">Garantias e limites</a></li><li><a href="#deteccao-de-conflitos-politica-operacional">Detecção de conflitos: política operacional</a></li><li><a href="#matriz-de-compatibilidade">Matriz de compatibilidade</a></li><li><a href="#quem-perde-e-quando-recomeca">Quem perde e quando recomeça</a></li><li><a href="#granularidade-e-falsos-conflitos">Granularidade e falsos conflitos</a></li><li><a href="#politicas-de-leitura-escrita-e-armazenamento">Políticas de leitura, escrita e armazenamento</a></li><li><a href="#leitura-e-visibilidade">Leitura e visibilidade</a></li><li><a href="#escrita-adiada-e-intervalos">Escrita adiada e intervalos</a></li><li><a href="#publicacao-e-validacao-final">Publicação e validação final</a></li><li><a href="#politicas-de-falha-aninhamento-e-recursos">Políticas de falha, aninhamento e recursos</a></li><li><a href="#conflict-invalid-e-falhas-fatais">CONFLICT, INVALID e falhas fatais</a></li><li><a href="#aninhamento-plano-e-cancelamento">Aninhamento plano e cancelamento</a></li><li><a href="#vida-util-limpeza-e-finalizacao">Vida útil, limpeza e finalização</a></li><li><a href="#backoff-e-limites-de-progresso">Backoff e limites de progresso</a></li><li><a href="#fontes-das-politicas">Fontes das políticas</a></li></ul></div>
+
+<p><a href="index.html">Índice</a> · <a href="02-transaction-directive.html">Diretiva</a></p>
+<p>O modelo selecionado usa registro explícito de objetos, reservas pessimistas de acesso e valores privados. Uma tentativa externa executa o corpo inteiro; confirma as escritas ao final ou descarta tudo e, em caso de conflito, recomeça o corpo. O compilador transforma acessos e chamadas no subconjunto aceito. O runtime realiza registro, reserva, acesso privado, publicação e limpeza.</p>
+<h2 id="classificacao-das-seis-politicas-implementadas">Classificação das seis políticas implementadas</h2>
+<p>Esta classificação descreve os mecanismos presentes no runtime. As propriedades de isolamento abaixo são condicionadas ao domínio suportado, ao registro correto e à participação de todos os acessos conflitantes no protocolo; não constituem certificação formal de um modelo geral de memória.</p>
+<h3 id="politica-de-deteccao-de-conflitos-conflict-detection-policy">Política de Detecção de Conflitos — Conflict Detection Policy</h3>
+<p><strong>Classificação: ansiosa (eager), na aquisição ou promoção da reserva.</strong> O runtime detecta incompatibilidade antes de acessar os valores compartilhados, quando solicita READ ou WRITE sobre o objeto registrado. A promoção READ → WRITE também verifica imediatamente a presença de outros leitores. Registrar o objeto, por si só, não detecta toda disputa futura, pois não adquire reserva.</p>
+<p>A validação final confirma identidade, buffers, intervalos e posse das reservas antes de publicar. Sua existência não torna a política lazy: os conflitos normais de acesso já são detectados durante a execução. Não há detecção baseada exclusivamente em comparar versões ao final.</p>
+<h3 id="politica-de-resolucao-de-conflitos-conflict-resolution-policy-contention-management">Política de Resolução de Conflitos — Conflict Resolution Policy / Contention Management</h3>
+<p><strong>Classificação: abortar o solicitante (self-abort / requester-aborts), com backoff exponencial limitado e retry externo.</strong> Quem encontra uma reserva incompatível recebe CONFLICT; o detentor conserva sua reserva. O solicitante propaga a falha, descarta integralmente a tentativa, libera seus recursos, realiza backoff e reinicia o corpo externo.</p>
+<p>O atraso determinístico varia de 64 a 65.536 iterações de relaxamento da CPU. O teto é do atraso, não do número de retries. Não há preempção do detentor, prioridades por trabalho acumulado, ordenação por timestamps ou garantia de justiça.</p>
+<p>A implementação não seleciona um gerenciador denominado Polite, Karma, Timestamp ou Aggressive. O backoff, isoladamente, não justifica rotulá-la Polite; a decisão efetiva é sempre condenar o solicitante, em vez de escolher uma vítima por heurística ou abortar a outra tentativa. INVALID não participa dessa disputa: exige limpeza e diagnóstico fatal, sem retry.</p>
+<h3 id="politica-de-gerenciamento-de-versoes-version-management-policy">Política de Gerenciamento de Versões — Version Management Policy</h3>
+<p><strong>Classificação: atualização adiada (lazy versioning / deferred update), com buffers privados e publicação no commit externo.</strong> As escritas especulativas alteram valores privados; o objeto compartilhado recebe as modificações somente após a validação final. Uma leitura da mesma tentativa observa suas próprias escritas.</p>
+<p>Escalares mantêm o valor privado completo; agregados mantêm intervalos válidos e modificados. O descarte elimina a visão privada sem restaurar valores compartilhados, pois as escritas especulativas não os alteraram. Não há atualização direta especulativa com undo log. “Versionamento”, aqui, descreve a manutenção da versão especulativa: não significa MVCC, histórico de versões confirmadas ou timestamps de versões.</p>
+<h3 id="politica-de-granularidade-granularity-policy">Política de Granularidade — Granularity Policy</h3>
+<p><strong>Classificação: por objeto canônico registrado (object-based).</strong> Leitores e escritor são associados à identidade do objeto e à extensão registrada. Campos/faixas de um mesmo agregado compartilham essa unidade de conflito, mesmo que sejam distintos.</p>
+<p>O deslocamento em bytes e os intervalos privados dão granularidade à cópia, validade e publicação dos dados; não criam reservas word-based nem reservas independentes por bloco ou por campo. Colisões de hash só compartilham o mutex de metadados: a comparação exata de identidade distingue os objetos. Sobreposições incompatíveis são recusadas como contrato inválido.</p>
+<h3 id="politica-de-visibilidade-e-isolamento-isolation-opacity-policy">Política de Visibilidade e Isolamento — Isolation / Opacity Policy</h3>
+<p><strong>Classificação operacional: isolamento pessimista por reservas de leitura/escrita mantidas até a saída externa, com visibilidade das escritas adiada até o commit.</strong> O protocolo tem a disciplina de bloqueio em duas fases estrito/rigoroso sobre os objetos participantes: não libera antecipadamente suas reservas e impede leitores ou escritores conflitantes de acessar o objeto enquanto a reserva incompatível estiver viva.</p>
+<p>No domínio participante, essa disciplina sustenta a serialização das transações confirmadas e impede leituras de valores especulativos de outras tentativas. As reservas também protegem leituras de tentativas que depois abortam. Isso é o mecanismo relevante para discutir opacidade; a documentação não declara opacidade formal de todos os programas C/C++, nem uma prova universal de strict serializability para o compilador/runtime completo.</p>
+<p><strong>Snapshot isolation não é a política selecionada.</strong> Não há snapshot global fixado no BEGIN, MVCC ou regra de conflito limitada a write–write no commit. As reservas são adquiridas sob demanda, inclusive para leituras.</p>
+<p>A publicação de múltiplos objetos ocorre por cópias sucessivas, mantendo todas as reservas. Participantes conflitantes continuam excluídos; acessos comuns fora do protocolo não recebem isolamento forte automaticamente nem atomicidade física multiobjeto. Vida útil, ausência de corridas externas e proibição de efeitos não reversíveis continuam fazendo parte do contrato.</p>
+<h3 id="politica-de-privatizacao-privatization-policy">Política de Privatização — Privatization Policy</h3>
+<p><strong>Classificação: explícita quanto à transferência de acesso e à vida útil; sem mecanismo geral de privatização implícita.</strong> Para retirar um objeto do uso compartilhado e passar a acessá-lo de forma comum, o programa precisa garantir sincronização e quiescência: nenhuma outra tentativa pode conservar referência ou acesso ao objeto. Remover um ponteiro de uma estrutura compartilhada dentro de uma transação, por si só, não autoriza destruir ou reutilizar o objeto após o commit.</p>
+<p>Não há mecanismo geral de epochs, coleta de memória ou barreira de privatização que automaticamente aguarde todos os possíveis usuários do objeto do programa. A lease do proprietário da hash protege o runtime e sua limpeza; não é um mecanismo de reclamation dos objetos da aplicação. Alocação/liberação arbitrária dentro do corpo continua fora do subconjunto suportado.</p>
+<p>Há uma distinção essencial de termos: buffers de valores privados e armazenamento marcado PRIVATE na verificação são recursos para execução especulativa e prova de vida útil. Eles não equivalem à privatização de um objeto antes compartilhado. Os exemplos desta documentação mantêm os objetos vivos durante as transações e só fazem observações comuns depois da sincronização apropriada.</p>
+<h2 id="politicas-por-estagio">Políticas por estágio</h2>
+<table>
+<thead>
+<tr>
+<th>Estágio</th>
+<th>Política implementada</th>
+<th>Consequência</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Preparação</td>
+<td>Resolver identidades, faixas, armazenamento e chamadas; preparar funções diretas elegíveis</td>
+<td>Acesso que não pode ser justificado é recusado</td>
+</tr>
+<tr>
+<td>Entrada externa</td>
+<td>Contexto novo, slot proprietário e lease do proprietário global da hash</td>
+<td>Os recursos globais permanecem vivos durante toda a tentativa</td>
+</tr>
+<tr>
+<td>Registro</td>
+<td>Explícito, por identidade canônica, tamanho e espécie</td>
+<td>Registrar não lê valores nem adquire reserva transacional</td>
+</tr>
+<tr>
+<td>Primeiro acesso</td>
+<td>Reserva de leitura compartilhada ou escrita exclusiva</td>
+<td>Leitores coexistem; escritor exclui outros participantes</td>
+</tr>
+<tr>
+<td>Promoção</td>
+<td>Leitor promove para escrita somente se for o único leitor</td>
+<td>Conflito condena a tentativa solicitante</td>
+</tr>
+<tr>
+<td>Leitura</td>
+<td>Copiar para armazenamento privado conforme a faixa necessária</td>
+<td>Leituras posteriores observam as próprias escritas</td>
+</tr>
+<tr>
+<td>Escrita</td>
+<td>Atualizar buffer privado e marcar intervalos modificados</td>
+<td>Não publicar imediatamente no objeto do programa</td>
+</tr>
+<tr>
+<td>Aninhamento</td>
+<td>Plano: contexto e controlador externos compartilhados</td>
+<td>Uma região interna não confirma independentemente</td>
+</tr>
+<tr>
+<td>Confirmação</td>
+<td>Validar toda a preparação recuperável antes de publicar</td>
+<td>Nenhuma recusa recuperável após a primeira cópia de publicação</td>
+</tr>
+<tr>
+<td>Falha</td>
+<td>Propagar status até o controlador externo</td>
+<td>Não reiniciar apenas uma função ou região interna</td>
+</tr>
+<tr>
+<td>Descarte</td>
+<td>Liberar reservas, referências, buffers e callbacks; lease por último</td>
+<td>Nenhuma escrita privada da tentativa é publicada</td>
+</tr>
+<tr>
+<td>Retry</td>
+<td>Descarte completo, backoff ativo e nova tentativa externa</td>
+<td>INVALID não recebe retry</td>
+</tr>
+</tbody>
+</table>
+<h2 id="identidade-e-granularidade">Identidade e granularidade</h2>
+<p>Todo objeto cuja vida começou antes da tentativa externa e que seja acessado precisa estar registrado, inclusive objetos constantes e acessos transitivos por funções preparadas. Listar um ponteiro registra o objeto ponteiro; isso não registra automaticamente seu destino.</p>
+<p>Campos e elementos usam uma identidade física canônica e deslocamento em bytes. A extensão efetivamente registrada limita os acessos: registrar um elemento não autoriza o restante do vetor. Registros repetidos compatíveis são reutilizados; registros incompatíveis ou sobreposição de objetos canônicos distintos são inválidos.</p>
+<p>Escalares usam valores privados completos. Agregados usam buffers e conjuntos normalizados de intervalos válidos e modificados, preenchidos sob demanda. Ler um campo não exige copiar antecipadamente todo o agregado. As reservas e referências permanecem até a saída externa.</p>
+<h2 id="conflitos-estados-e-progresso">Conflitos, estados e progresso</h2>
+<p>Os estados internos são <code>ACTIVE</code>, <code>CONFLICTED</code>, <code>INVALID</code>, <code>PUBLISHING</code> e <code>CLOSED</code>. <code>CLOSED</code> isoladamente não prova confirmação nem liberação do contexto. Uma falha INVALID prevalece sobre conflito e não é convertida em sucesso.</p>
+<p>A reserva conflitante não espera pela outra transação sob o mutex do bucket. O solicitante conserva seus recursos até o descarte explícito. O backoff usa <code>64 &lt;&lt; min(tentativa - 1, 10)</code> iterações de relaxamento da CPU para contador positivo: de 64 a 65.536. O contador satura; o atraso tem teto, mas não há limite de retries nem garantia de ausência de starvation. Não há sorteio, sono ou yield nessa política.</p>
+<h2 id="garantias-e-limites">Garantias e limites</h2>
+<p>As reservas são mantidas durante todas as cópias de publicação. Isso protege os participantes que obedecem ao protocolo; não torna várias escritas fisicamente simultâneas para observadores comuns sem sincronização. Todos os acessos concorrentes conflitantes devem obedecer à disciplina transacional ou a uma sincronização externa apropriada.</p>
+<p>A tentativa não pode executar efeitos externos que precisariam ser desfeitos: E/S, chamadas arbitrárias, locks do programa ou alocação/liberação não suportada. Não pode haver agendamento de tarefas durante a transação. Vida útil de objetos, contexto, slots e buffers é pré-condição; testar NULL não valida ponteiros pendentes. Falha de alocação do runtime é fatal.</p>
+<p>A hash gerencia identidade e metadados, não os valores do programa. Referência retida não é reserva de leitura/escrita. Os mutexes dos buckets protegem metadados; logs e destruição final de metadados ocorrem fora deles. Contagem zero não prova quiescência. A finalização global usa admissão e leases; destruição de tabelas independentes exige quiescência externa.</p>
+<p>Referências: <a href="../gcc-src-tm/OPENMP_TRANSACTION_DECISIONS.md">decisões</a>, <a href="../gcc-src-tm/libgomp/newtm-transaction.h">ciclo de vida</a>, <a href="../gcc-src-tm/libgomp/newtm-context.h">contexto e reservas</a>.</p>
+<h2 id="deteccao-de-conflitos-politica-operacional">Detecção de conflitos: política operacional</h2>
+<p>A detecção é antecipada, na aquisição ou promoção da reserva, antes do acesso aos valores compartilhados. O modelo usa reservas pessimistas por objeto canônico e atualização adiada em buffers privados. Não é um esquema de leitura otimista com números de versão e validação apenas no commit.</p>
+<h3 id="matriz-de-compatibilidade">Matriz de compatibilidade</h3>
+<p>A tabela considera participações de outras tentativas no mesmo objeto canônico. Uma reserva já pertencente à própria tentativa é reutilizada.</p>
+<table>
+<thead>
+<tr>
+<th>Pedido</th>
+<th>Sem participantes</th>
+<th>Outros leitores</th>
+<th>Outro escritor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Leitura</td>
+<td>Concede READ</td>
+<td>Concede READ e acrescenta leitor</td>
+<td>CONFLICT</td>
+</tr>
+<tr>
+<td>Escrita</td>
+<td>Concede WRITE</td>
+<td>CONFLICT</td>
+<td>CONFLICT</td>
+</tr>
+<tr>
+<td>Promoção READ → WRITE</td>
+<td>Concede se o solicitante for o único leitor</td>
+<td>CONFLICT se houver outro leitor</td>
+<td>Estado incompatível com sua reserva READ válida</td>
+</tr>
+</tbody>
+</table>
+<p>Uma reserva WRITE própria também satisfaz leituras posteriores e não é rebaixada para READ. Repetir uma leitura com READ próprio conserva a participação. Uma promoção recusada mantém o READ anterior para a limpeza posterior; não o abandona silenciosamente.</p>
+<p>A verificação e a alteração das listas de leitores/escritor ocorrem atomicamente sob o mutex do bucket. Se ainda não houver metadados da política, o runtime solicita a preparação de um candidato fora do mutex e reexamina o estado ao voltar. Um candidato que perdeu a corrida não substitui a política instalada por outra thread. O callback da reserva não aloca, não espera e não acessa os valores do programa.</p>
+<h3 id="quem-perde-e-quando-recomeca">Quem perde e quando recomeça</h3>
+<p>A tentativa que solicita uma reserva incompatível recebe CONFLICT e é condenada. O runtime não expulsa o detentor anterior, não compara idade ou prioridade e não espera pela reserva mantendo o mutex do bucket. Assim, dois leitores que desejam promover podem provocar descarte e nova tentativa, em vez de esperar um pelo outro.</p>
+<p>Reservas anteriores, referências e níveis de aninhamento do solicitante permanecem retidos até o epílogo externo. A falha deve atravessar as chamadas preparadas sem consumo dos resultados especulativos. Só depois do descarte integral e do backoff o controlador pode reiniciar todo o corpo externo. Não há retomada no acesso que falhou.</p>
+<p>Essa política evita espera por uma reserva conflitante, mas não promete ausência de toda espera: os mutexes internos e a execução normal do sistema continuam existindo. Também não há ordenação global de justiça, prioridade por idade ou garantia de progresso por tentativa.</p>
+<h3 id="granularidade-e-falsos-conflitos">Granularidade e falsos conflitos</h3>
+<p>A unidade de conflito é o objeto canônico registrado, mesmo quando os buffers de agregado distinguem intervalos. Duas tentativas que escrevem campos diferentes do mesmo agregado ainda disputam a reserva de escrita desse objeto. Isso é uma escolha conservadora: intervalos reduzem cópia e publicação, mas não constituem reservas independentes por campo.</p>
+<p>Uma colisão de hash não torna dois endereços iguais: a entrada é comparada pela identidade exata. Objetos distintos no mesmo bucket compartilham o mutex de metadados, sem por isso compartilharem a reserva transacional. Sobreposição de registros canônicos distintos e descrições incompatíveis são erros de contrato, não conflitos normais para retry.</p>
+<h2 id="politicas-de-leitura-escrita-e-armazenamento">Políticas de leitura, escrita e armazenamento</h2>
+<h3 id="leitura-e-visibilidade">Leitura e visibilidade</h3>
+<p>O registro só estabelece identidade e extensão. No primeiro acesso, a reserva deve ser obtida antes de copiar valores para a visão privada. Leituras seguintes usam bytes privados válidos e observam as escritas anteriores da própria tentativa. O programa só pode consumir o destino de uma operação de leitura que retornou OK.</p>
+<p>A reserva de leitura permanece até a saída externa; um escritor concorrente participante não pode publicar nesse objeto durante esse período. O programa não obtém um snapshot global de todos os objetos no instante do BEGIN: os objetos são reservados sob demanda. A garantia depende de todos os acessos conflitantes obedecerem ao protocolo.</p>
+<h3 id="escrita-adiada-e-intervalos">Escrita adiada e intervalos</h3>
+<p>O runtime reserva escrita antes de modificar a visão privada. Escalares usam armazenamento do valor completo, com marcas de validade e modificação. Agregados usam armazenamento privado com conjuntos normalizados de intervalos válidos e modificados. Faixas ainda necessárias são preenchidas sob demanda, preservando bytes já modificados pela tentativa.</p>
+<p>A faixa pedida deve caber na extensão registrada, com verificação que evita overflow. O acesso escalar deve cobrir o escalar conforme o contrato do runtime. Buffers de transporte não podem se sobrepor ao armazenamento registrado nem às estruturas privadas conhecidas do contexto; validade e extensão reais dos ponteiros continuam sendo pré-condições do chamador.</p>
+<h3 id="publicacao-e-validacao-final">Publicação e validação final</h3>
+<p>Antes de entrar em PUBLISHING, a saída externa verifica todos os registros: identidade e tamanho, estado dos buffers e intervalos, coerência das marcas e posse exata das reservas. Intervalos modificados precisam estar cobertos pelos válidos; valores modificados exigem WRITE. Essa validação verifica invariantes e posse, sem substituir a detecção antecipada de conflito por um algoritmo de versões.</p>
+<p>Somente depois dessa preparação completa são copiados os escalares modificados e os intervalos modificados dos agregados. Todas as reservas continuam retidas até terminar a publicação de todos os objetos. Não há alocação nem caminho de falha recuperável nessa fase. O contrato pressupõe objetos vivos e graváveis: uma violação de vida útil não se transforma em rollback seguro de uma publicação parcialmente executada.</p>
+<p>Leitores transacionais participantes ficam excluídos pelas reservas enquanto houver publicação conflitante. Observadores comuns sem sincronização não recebem atomicidade física multiobjeto nem proteção contra corridas de dados.</p>
+<h2 id="politicas-de-falha-aninhamento-e-recursos">Políticas de falha, aninhamento e recursos</h2>
+<h3 id="conflict-invalid-e-falhas-fatais">CONFLICT, INVALID e falhas fatais</h3>
+<p>CONFLICT representa disputa recuperável pelo protocolo de reservas. INVALID representa uso ou estado incompatível com o contrato, como registro ausente, faixa inválida ou incoerência interna detectada. INVALID prevalece sobre CONFLICT e conserva a primeira causa permanente; status desconhecido não é autorização para confirmar.</p>
+<p>Com contexto vivo, o epílogo salva causa/diagnóstico, descarta todos os níveis e só então termina fatalmente no caso INVALID. Em conflito, retorna apenas depois de limpar e realizar o backoff. Falha de entrada sem contexto exige a saída fatal apropriada. OOM do runtime é fatal e não possui status recuperável próprio.</p>
+<h3 id="aninhamento-plano-e-cancelamento">Aninhamento plano e cancelamento</h3>
+<p>Regiões internas compartilham reservas, registros, buffers e causa de falha. A saída interna bem-sucedida reduz a profundidade, sem publicação independente. Um erro interno compromete a tentativa externa. Não há subtransação fechada com commit ou rollback parcial independente.</p>
+<p><code>discard</code> pode cancelar voluntariamente uma tentativa ainda não publicada. Ele consome o slot e libera os recursos sem copiar os valores privados para os objetos. Isso difere de retry: é o controlador externo, após conflito e limpeza, que decide a reexecução pelo protocolo.</p>
+<h3 id="vida-util-limpeza-e-finalizacao">Vida útil, limpeza e finalização</h3>
+<p>Cada registro retém a referência que sustenta sua participação na hash. As reservas precisam ser retiradas antes de liberar a referência que as mantém. A limpeza também libera buffers e intervalos; callbacks finais de metadados ocorrem fora do mutex do bucket. A lease do proprietário global é liberada por último, cobrindo inclusive a limpeza final.</p>
+<p>O proprietário global controla admissão e fechamento com estados OPEN, CLOSING e CLOSED. Fechamento ocupado não força a retirada de referências vivas. Tabelas independentes requerem quiescência externa antes de destruição. Uma contagem de entradas igual a zero não prova que callbacks ou usuários já terminaram.</p>
+<h3 id="backoff-e-limites-de-progresso">Backoff e limites de progresso</h3>
+<p>O contador positivo de conflitos pertence ao controlador externo e satura em SIZE_MAX. O atraso cresce em potências de dois, de 64 a 65.536 iterações de <code>cpu_relax</code>, sem unidade de tempo garantida. A saturação limita o atraso, não o número de tentativas. Não há jitter, sleep, yield de tarefa ou limite de retries configurável nessa implementação.</p>
+<p>Efeitos externos, locks do programa e operações não preparadas não são desfeitos por esse mecanismo. Temporários privados da tentativa são recriados no reinício; argumentos estáveis de um controlador manual não são um log de undo. Por isso os contratos proíbem usar tais argumentos como saída especulativa arbitrária.</p>
+<h2 id="fontes-das-politicas">Fontes das políticas</h2>
+<p>A matriz de conflitos e a promoção estão em <code>newtm_reserve_visit</code>; a detecção e condenação em <code>newtm_reserve</code>; a validação/publicação em <code>newtm_end</code>; o descarte e retry em <code>newtm_discard</code>, <code>newtm_after_failure</code> e <code>newtm_execute</code>; o atraso em <code>newtm_backoff</code>. Essas funções estão em <a href="../gcc-src-tm/libgomp/newtm-transaction.c">newtm-transaction.c</a>. Os contratos de armazenamento, propriedade e callbacks estão nos cabeçalhos <a href="../gcc-src-tm/libgomp/newtm-context.h">newtm-context.h</a>, <a href="../gcc-src-tm/libgomp/newtm-transaction.h">newtm-transaction.h</a> e <a href="../gcc-src-tm/libgomp/newtm-hash.h">newtm-hash.h</a>.</p></main><footer><nav aria-label="Navegação da documentação"><a href="index.html">Índice</a> <a rel="prev" href="index.html">← Anterior</a> <a rel="next" href="02-transaction-directive.html">Próximo →</a></nav><p>Extensão experimental · Linux x86_64 · Consulte os limites de suporte e as evidências de aceitação.</p></footer></body></html>
